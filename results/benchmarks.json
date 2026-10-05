@@ -1,0 +1,803 @@
+{
+  "description": "Scrubbed transcription of the FatQat CUDA benchmark record. Medians in milliseconds; ratios are baseline/candidate (above 1 means the candidate is faster).",
+  "measurement_date": "2026-09-15",
+  "committed_code": "r8",
+  "engine_revisions": {
+    "v5": "earlier CUDA engine revision; same CPU numerical code",
+    "r7": "CUDA engine revision before r8; same CPU code as r8",
+    "r8": "the committed code in this repository"
+  },
+  "workload_common": {
+    "circuit": "two layers of parameterised RY and RZ on every qubit plus staggered nearest-neighbour CX",
+    "precision": "complex128 on CPU and GPU",
+    "shots": 0,
+    "timed": "one warm public FatQat call including GPU synchronisation and the requested host output",
+    "untimed": "imports, backend and program construction, the first measured call, the reference check"
+  },
+  "configuration_notes": {
+    "CPU (compiled Numba), 4 threads": "CPU-only run, 4 Numba threads",
+    "CPU (compiled Numba), all cores": "CPU-only run, every logical core given to Numba",
+    "CPU (compiled Numba), 16 workers": "CPU-only run, 16 Numba workers (not the fastest recorded CPU setting)",
+    "GPU, 1 device": "one GPU per call; the host process had 16 CPU threads"
+  },
+  "gpu_vs_cpu_r7": [
+    {
+      "workload": "sv_state_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "full statevector",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 4 threads",
+        "median_ms": 1579.549
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 72.371
+      },
+      "ratio_baseline_over_candidate": 21.83,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "sv_state_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "full statevector",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), all cores",
+        "median_ms": 234.982
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 72.371
+      },
+      "ratio_baseline_over_candidate": 3.25,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16,
+      "baseline_warm_range_ms": [
+        201.489,
+        529.482
+      ]
+    },
+    {
+      "workload": "sv_observable_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 4 threads",
+        "median_ms": 1631.456
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 46.951
+      },
+      "ratio_baseline_over_candidate": 34.75,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "sv_observable_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), all cores",
+        "median_ms": 281.705
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 46.951
+      },
+      "ratio_baseline_over_candidate": 6.0,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16,
+      "baseline_warm_range_ms": [
+        276.832,
+        618.102
+      ]
+    },
+    {
+      "workload": "dm_noise_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full density matrix",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 4 threads",
+        "median_ms": 270.949
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 33.699
+      },
+      "ratio_baseline_over_candidate": 8.04,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "dm_noise_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full density matrix",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), all cores",
+        "median_ms": 59.14
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 33.699
+      },
+      "ratio_baseline_over_candidate": 1.75,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16,
+      "baseline_warm_range_ms": [
+        46.391,
+        275.914
+      ]
+    },
+    {
+      "workload": "dm_observable_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 4 threads",
+        "median_ms": 269.645
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 26.51
+      },
+      "ratio_baseline_over_candidate": 10.17,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "dm_observable_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), all cores",
+        "median_ms": 43.202
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 26.51
+      },
+      "ratio_baseline_over_candidate": 1.63,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "unitary_11",
+      "qubits": 11,
+      "method": "unitary",
+      "noise": "none",
+      "output": "full unitary",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 4 threads",
+        "median_ms": 130.751
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 10.524
+      },
+      "ratio_baseline_over_candidate": 12.42,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "unitary_11",
+      "qubits": 11,
+      "method": "unitary",
+      "noise": "none",
+      "output": "full unitary",
+      "engine_revision": "r7",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), all cores",
+        "median_ms": 50.481
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 10.524
+      },
+      "ratio_baseline_over_candidate": 4.8,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    }
+  ],
+  "gpu_vs_cpu_v5": [
+    {
+      "workload": "sv_state_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "full statevector",
+      "engine_revision": "v5",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 16 workers",
+        "median_ms": 731.782
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 72.197
+      },
+      "ratio_baseline_over_candidate": 10.14,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "dm_noise_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full density matrix",
+      "engine_revision": "v5",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 16 workers",
+        "median_ms": 80.303
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 33.708
+      },
+      "ratio_baseline_over_candidate": 2.38,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "unitary_11",
+      "qubits": 11,
+      "method": "unitary",
+      "noise": "none",
+      "output": "full unitary",
+      "engine_revision": "v5",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 16 workers",
+        "median_ms": 105.134
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 10.471
+      },
+      "ratio_baseline_over_candidate": 10.04,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16
+    },
+    {
+      "workload": "superop_noise_4",
+      "qubits": 4,
+      "method": "superoperator",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full superoperator",
+      "engine_revision": "v5",
+      "baseline": {
+        "configuration": "CPU (compiled Numba), 16 workers",
+        "median_ms": 2.296
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device",
+        "median_ms": 2.341
+      },
+      "ratio_baseline_over_candidate": 0.98,
+      "warm_samples_per_median": 5,
+      "source_document": "CROSS_ARCHITECTURE_RESULTS.md",
+      "gpu_host_threads": 16,
+      "note": "ratio below 1: the GPU is 1.02x slower; warm ranges overlap, so no stable winner"
+    }
+  ],
+  "r8_vs_r7_gpu_only": [
+    {
+      "workload": "sv_state_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "full statevector",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 72.216
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 66.141
+      },
+      "ratio_baseline_over_candidate": 1.09,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "large",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 256.047,
+        "r8": 256.047
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "sv_observable_24",
+      "qubits": 24,
+      "method": "statevector",
+      "noise": "none",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 46.943
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 40.81
+      },
+      "ratio_baseline_over_candidate": 1.15,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "large",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 256.094,
+        "r8": 256.094
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "dm_noise_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full density matrix",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 33.698
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 21.058
+      },
+      "ratio_baseline_over_candidate": 1.6,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "large",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 192.13,
+        "r8": 128.065
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "dm_observable_11",
+      "qubits": 11,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 26.539
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 14.004
+      },
+      "ratio_baseline_over_candidate": 1.9,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "large",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 192.13,
+        "r8": 128.065
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "unitary_11",
+      "qubits": 11,
+      "method": "unitary",
+      "noise": "none",
+      "output": "full unitary",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 10.525
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 9.606
+      },
+      "ratio_baseline_over_candidate": 1.1,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "large",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 64.022,
+        "r8": 64.022
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "superop_noise_4",
+      "qubits": 4,
+      "method": "superoperator",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full superoperator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 2.273
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 1.783
+      },
+      "ratio_baseline_over_candidate": 1.27,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "large",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 3.048,
+        "r8": 2.024
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "sv_state_20",
+      "qubits": 20,
+      "method": "statevector",
+      "noise": "none",
+      "output": "full statevector",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 4.561
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 4.343
+      },
+      "ratio_baseline_over_candidate": 1.05,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "small",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 16.04,
+        "r8": 16.04
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "sv_observable_20",
+      "qubits": 20,
+      "method": "statevector",
+      "noise": "none",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 3.133
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 2.841
+      },
+      "ratio_baseline_over_candidate": 1.1,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "small",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 16.094,
+        "r8": 16.094
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "dm_noise_9",
+      "qubits": 9,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full density matrix",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 4.821
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 3.49
+      },
+      "ratio_baseline_over_candidate": 1.38,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "small",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 12.106,
+        "r8": 8.053
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "dm_observable_9",
+      "qubits": 9,
+      "method": "density_matrix",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "exact expectation of three fixed Pauli terms",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 4.538
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 3.151
+      },
+      "ratio_baseline_over_candidate": 1.44,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "small",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 12.106,
+        "r8": 8.053
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "unitary_9",
+      "qubits": 9,
+      "method": "unitary",
+      "noise": "none",
+      "output": "full unitary",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 1.506
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 1.534
+      },
+      "ratio_baseline_over_candidate": 0.98,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "small",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 4.018,
+        "r8": 4.018
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    },
+    {
+      "workload": "superop_noise_4",
+      "qubits": 4,
+      "method": "superoperator",
+      "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ",
+      "output": "full superoperator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 2.368
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 1.779
+      },
+      "ratio_baseline_over_candidate": 1.33,
+      "warm_samples_per_median": 6,
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md",
+      "profile": "small",
+      "gpu_host_threads": 16,
+      "gpu_tracked_live_memory_mib": {
+        "r7": 3.048,
+        "r8": 2.024
+      },
+      "order": "r7, r8, r8, r7 processes; three warm calls each"
+    }
+  ],
+  "r8_vs_r7_dense_fixtures": [
+    {
+      "workload": "dense fixture: statevector gate",
+      "qubits": 22,
+      "description": "dense complex two-qubit gates or multi-Kraus channels, reversed/non-adjacent targets",
+      "output": "full state or operator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 7.926
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 8.02
+      },
+      "ratio_baseline_over_candidate": 0.99,
+      "warm_samples_per_median": 5,
+      "order": "fixed r7 then r8 (weaker drift control)",
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
+    },
+    {
+      "workload": "dense fixture: density_matrix gate",
+      "qubits": 11,
+      "description": "dense complex two-qubit gates or multi-Kraus channels, reversed/non-adjacent targets",
+      "output": "full state or operator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 8.546
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 8.719
+      },
+      "ratio_baseline_over_candidate": 0.98,
+      "warm_samples_per_median": 5,
+      "order": "fixed r7 then r8 (weaker drift control)",
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
+    },
+    {
+      "workload": "dense fixture: density_matrix channel",
+      "qubits": 11,
+      "description": "dense complex two-qubit gates or multi-Kraus channels, reversed/non-adjacent targets",
+      "output": "full state or operator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 10.784
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 9.769
+      },
+      "ratio_baseline_over_candidate": 1.1,
+      "warm_samples_per_median": 5,
+      "order": "fixed r7 then r8 (weaker drift control)",
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
+    },
+    {
+      "workload": "dense fixture: unitary gate",
+      "qubits": 11,
+      "description": "dense complex two-qubit gates or multi-Kraus channels, reversed/non-adjacent targets",
+      "output": "full state or operator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 7.994
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 7.922
+      },
+      "ratio_baseline_over_candidate": 1.01,
+      "warm_samples_per_median": 5,
+      "order": "fixed r7 then r8 (weaker drift control)",
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
+    },
+    {
+      "workload": "dense fixture: superoperator gate",
+      "qubits": 5,
+      "description": "dense complex two-qubit gates or multi-Kraus channels, reversed/non-adjacent targets",
+      "output": "full state or operator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 2.576
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 2.629
+      },
+      "ratio_baseline_over_candidate": 0.98,
+      "warm_samples_per_median": 5,
+      "order": "fixed r7 then r8 (weaker drift control)",
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
+    },
+    {
+      "workload": "dense fixture: superoperator channel",
+      "qubits": 5,
+      "description": "dense complex two-qubit gates or multi-Kraus channels, reversed/non-adjacent targets",
+      "output": "full state or operator",
+      "engine_revision": "r8 vs r7",
+      "baseline": {
+        "configuration": "GPU, 1 device, engine r7",
+        "median_ms": 2.282
+      },
+      "candidate": {
+        "configuration": "GPU, 1 device, engine r8",
+        "median_ms": 2.301
+      },
+      "ratio_baseline_over_candidate": 0.99,
+      "warm_samples_per_median": 5,
+      "order": "fixed r7 then r8 (weaker drift control)",
+      "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
+    }
+  ],
+  "not_measured": "r8 has not been timed against the CPU engines; no GPU-vs-CPU ratio here describes r8",
+  "experiments_not_in_this_code": {
+    "note": "Unpromoted experiments measured against r8. Not part of this repository; no claim is made for them.",
+    "rows": [
+      {
+        "workload": "13-qubit noisy density-matrix observable",
+        "baseline": {
+          "configuration": "r8",
+          "median_ms": 382.66
+        },
+        "candidate": {
+          "configuration": "experimental variant e3-b128-hostpack",
+          "median_ms": 232.193
+        },
+        "warm_samples_per_median": 5,
+        "source_document": "CUDA_EXPERIMENT_RESULTS.md"
+      },
+      {
+        "workload": "24-qubit statevector, full state",
+        "baseline": {
+          "configuration": "r8",
+          "median_ms": 66.062
+        },
+        "candidate": {
+          "configuration": "experimental variant e3_hostpack_pinned",
+          "median_ms": 45.257
+        },
+        "warm_samples_per_median": 10,
+        "source_document": "CUDA_EXPERIMENT_RESULTS.md"
+      },
+      {
+        "workload": "11-qubit noisy density matrix, full",
+        "baseline": {
+          "configuration": "r8",
+          "median_ms": 21.098
+        },
+        "candidate": {
+          "configuration": "experimental variant e3_hostpack_pinned",
+          "median_ms": 14.31
+        },
+        "warm_samples_per_median": 10,
+        "source_document": "CUDA_EXPERIMENT_RESULTS.md"
+      }
+    ]
+  },
+  "precision": {
+    "statement": "within 8 machine epsilons of the CPU engine; equal-or-better in every case is not established",
+    "source_documents": [
+      "verification.json",
+      "verification-r7.json",
+      "FQ020_VERIFICATION.json"
+    ]
+  }
+}
