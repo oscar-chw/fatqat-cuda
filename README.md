@@ -16,42 +16,44 @@ The GPU is selected at the engine boundary: FatQat's validation, lowering and ex
 
 ```mermaid
 flowchart TB
-  P[("Program + Simulator<br/>method, runtime, device_id")]:::data
+  P[("Program + Simulator:<br/>method, runtime,<br/>device_id")]:::data
   subgraph HOST["Host CPU: FatQat's existing contracts"]
-    L["validate, bind parameters,<br/>lower once"]:::step
-    E[("immutable execution plan:<br/>matrices, channels, measurements")]:::data
-    C{"execution policy +<br/>engine capabilities"}:::gate
+    PE["pulse emulation:<br/>PulseEngine, QuTiP"]:::ext
+    L["validate, bind<br/>parameters, lower once"]:::step
+    E[("immutable plan:<br/>matrices, channels,<br/>measurements")]:::data
+    C{{"execution policy<br/>+ engine capabilities"}}:::gate
     X["BackendValidationError"]:::gate
     N["NumPy / Numba<br/>CPU engine"]:::step
-    F["math.fsum of<br/>partial sums"]:::step
-    D["decode indices<br/>to counts"]:::step
-    J[("Job / Result<br/>NumPy arrays, counts, values")]:::out
   end
   subgraph DEV["One CUDA device: cupy.py engines"]
-    S[("resident complex128<br/>state or operator")]:::key
     K["FatQat gate and<br/>Kraus kernels"]:::key
-    O["compensated partial<br/>reductions"]:::key
+    S[("resident complex128<br/>state or operator")]:::key
+    O["compensated<br/>partial reductions"]:::key
     M["probability<br/>sampling"]:::key
   end
-  PE["pulse emulation:<br/>PulseEngine, QuTiP"]:::ext
+  subgraph BACK["Host CPU: results"]
+    F["math.fsum of<br/>partial sums"]:::step
+    D["decode indices<br/>to counts"]:::step
+    J[("Job / Result: NumPy<br/>arrays, counts, values")]:::out
+  end
 
   P -->|"Program"| L
+  P -.->|"Hamiltonian<br/>emulation: CPU only"| PE
   L -->|"plan + facts"| E
   E -->|"execution shape"| C
   C -->|"shape or controls<br/>unsupported"| X
   C -->|"numpy / numba"| N
-  N -->|"NumPy state, counts"| J
+  N -->|"NumPy state,<br/>counts"| J
   C ==>|"runtime='cuda'"| S
-  E ==>|"matrices uploaded once<br/>per execution"| K
+  E ====>|"matrices uploaded<br/>once per execution"| K
   K ==>|"updates in place"| S
-  S ==>|"state stays on device"| O
-  O ==>|"≤ 4096 doubles per term"| F
+  S ==>|"state stays<br/>on device"| O
+  O ==>|"≤ 4096 doubles<br/>per term"| F
   F ==>|"expectation values"| J
   S -->|"probabilities stay"| M
   M -->|"sampled indices"| D
   D -->|"counts"| J
   S -.->|"full copy only if<br/>state requested"| J
-  P -.->|"Hamiltonian emulation:<br/>CPU only"| PE
 
   classDef data fill:#dbeafe,stroke:#1d4ed8,color:#0b1220
   classDef step fill:#f1f5f9,stroke:#475569,color:#0b1220
@@ -104,9 +106,9 @@ sequenceDiagram
   participant H as Simulator (host)
   participant G as GPU memory
   Note over H,G: every call
-  H->>G: gate/Kraus matrices, uploaded once per execution
+  H->>G: gate/Kraus matrices,<br/>uploaded once per execution
   opt initial_state given
-    H->>G: host array copied into owned device state
+    H->>G: host array copied<br/>into owned device state
   end
   H->>G: kernels queued, state updated in place
   H->>G: synchronize stream before the Job is DONE
@@ -123,7 +125,7 @@ sequenceDiagram
     H-->>U: math.fsum, then expectation values
   else Estimator, sampled
     Note over G: base state kept resident
-    G->>G: device-to-device copy for each measurement tail
+    G->>G: device-to-device copy<br/>for each measurement tail
     G-->>H: sampled indices only
     H-->>U: estimates from counts
   end
