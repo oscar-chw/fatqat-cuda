@@ -1,0 +1,39 @@
+# CPU-path tests for the CUDA fork. GitHub-hosted runners have no NVIDIA GPU,
+# so the CUDA tests skip themselves when CuPy is absent. The upstream Tests
+# and Lint workflows are kept as they are; they run only for pushes and pull
+# requests to main.
+name: CUDA fork CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-tests:
+    name: CPU tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # Dependency groups need pip >= 25.1.
+      - name: Install package with pinned dev and qiskit groups
+        run: |
+          python -m pip install --upgrade "pip>=25.1"
+          python -m pip install . --group dev --group qiskit -c .github/ci-constraints.txt
+
+      - name: Run tests (CUDA tests self-skip without CuPy)
+        run: python -m pytest -q -p no:cacheprovider tests
