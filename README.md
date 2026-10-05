@@ -7,6 +7,9 @@ FatQat is written by the FatQat authors and released under Apache-2.0. This
 fork adds a GPU engine to it. The upstream README is kept further down,
 unchanged apart from its heading and one paragraph on installing CUDA.
 
+Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK),
+as part of coursework for CENG5280, 2026-27 Term 1.
+
 Implemented with AI coding agents under Oscar's design and review.
 
 ## Problem
