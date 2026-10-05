@@ -115,7 +115,7 @@ def _strides(dims: Sequence[int]) -> list[int]:
 
 
 def _contract_local(
-    m: np.ndarray, tensor: np.ndarray, axes: Sequence[int], total: int, k: int
+    m: np.ndarray, tensor: np.ndarray, axes: Sequence[int], total: int, k: int, *, xp=np
 ) -> np.ndarray:
     """Contract a local ``[out, in]`` operator into ``axes`` of a tensor.
 
@@ -126,7 +126,7 @@ def _contract_local(
     n-axis state tensor, the density-matrix kernel twice (ket then bra) on the
     2n-axis rho tensor.
     """
-    out = np.tensordot(m, tensor, axes=(list(range(k, 2 * k)), list(axes)))
+    out = xp.tensordot(m, tensor, axes=(list(range(k, 2 * k)), list(axes)))
     # Result axes: [out_0..out_{k-1}] + remaining tensor axes (original order).
     remaining = [ax for ax in range(total) if ax not in axes]
     perm = [0] * total
@@ -134,11 +134,11 @@ def _contract_local(
         perm[ax] = j
     for idx, ax in enumerate(remaining):
         perm[ax] = k + idx
-    return np.transpose(out, perm)
+    return xp.transpose(out, perm)
 
 
 def _measured_keep_mask(
-    idx: int, subsystems: Sequence[int], dims: Sequence[int], size: int
+    idx: int, subsystems: Sequence[int], dims: Sequence[int], size: int, *, xp=np
 ) -> np.ndarray:
     """Boolean mask over flat basis states matching ``idx``'s measured digits.
 
@@ -148,18 +148,18 @@ def _measured_keep_mask(
     """
     subsystems = list(subsystems)
     if len(set(subsystems)) == len(dims):
-        keep = np.zeros(size, dtype=bool)
+        keep = xp.zeros(size, dtype=bool)
         keep[idx] = True
         return keep
     strides = _strides(dims)
-    basis = np.arange(size)
+    basis = xp.arange(size)
     # One (N, m) broadcast instead of m separate O(N) passes: fold every measured
     # subsystem's stride and modulus into a single vectorized divide/mod/compare.
-    stride_arr = np.array([strides[q] for q in subsystems])
-    dim_arr = np.array([dims[q] for q in subsystems])
+    stride_arr = xp.array([strides[q] for q in subsystems])
+    dim_arr = xp.array([dims[q] for q in subsystems])
     digits = (basis[:, None] // stride_arr) % dim_arr
     idx_digits = (idx // stride_arr) % dim_arr
-    return np.all(digits == idx_digits, axis=1)
+    return xp.all(digits == idx_digits, axis=1)
 
 
 def _condition_matches(
@@ -675,14 +675,14 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         given = initial_state
         if given is not None:
-            given = np.asarray(given, dtype=complex)
+            given = self._xp.asarray(given, dtype=complex)
             # A ket is accepted as shorthand for the pure state it describes,
             # so the same array can start a statevector and a density-matrix
             # run without the caller forming the outer product twice.
             if given.ndim == 1:
-                return np.outer(given, given.conj())
-            return np.array(given, dtype=complex)
-        state = np.zeros((size, size), dtype=complex)
+                return self._xp.outer(given, given.conj())
+            return self._xp.array(given, dtype=complex)
+        state = self._xp.zeros((size, size), dtype=complex)
         state[0, 0] = 1.0
         return state
 
@@ -701,7 +701,7 @@ class NumpyDMEngine(_NumpyMatrixEngine):
         accepted only for interface parity, like reset).
         """
         rho = self.state
-        new = np.zeros_like(rho)
+        new = self._xp.zeros_like(rho)
         for kraus in step.kraus_ops:
             new += self._apply_local_sandwich(rho, kraus, step.target_indices)
         self._state = new
@@ -720,17 +720,19 @@ class NumpyDMEngine(_NumpyMatrixEngine):
         k = len(targets)
         local_dims = tuple(self._dims[t] for t in targets)
         tensor = rho.reshape(self._reversed_dims * 2)
-        m = np.asarray(matrix, dtype=complex).reshape(local_dims + local_dims)
+        m = self._matrix_array(matrix).reshape(local_dims + local_dims)
         ket_axes = [n - 1 - q for q in targets]
         bra_axes = [2 * n - 1 - q for q in targets]
-        tensor = _contract_local(m, tensor, ket_axes, 2 * n, k)
-        tensor = _contract_local(m.conj(), tensor, bra_axes, 2 * n, k)
+        tensor = _contract_local(m, tensor, ket_axes, 2 * n, k, xp=self._xp)
+        tensor = _contract_local(m.conj(), tensor, bra_axes, 2 * n, k, xp=self._xp)
         return tensor.reshape(rho.shape)
 
     def probabilities(self) -> np.ndarray:
         # A valid rho's diagonal is real and non-negative; clip tiny round-off so
         # the values stay a valid sampling distribution.
-        probabilities = np.clip(np.real(np.diagonal(self.state)), 0.0, None)
+        probabilities = self._xp.clip(
+            self._xp.real(self._xp.diagonal(self.state)), 0.0, None
+        )
         total = probabilities.sum()
         return probabilities / total if total > 0 else probabilities
 
@@ -739,10 +741,12 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     ) -> int:
         rho = self.state
         size = rho.shape[0]
-        idx = int(rng.choice(size, p=self.probabilities()))
-        keep = _measured_keep_mask(idx, measured_subsystems, self._dims, size)
+        idx = int(self.sample_indices(1, rng)[0])
+        keep = _measured_keep_mask(
+            idx, measured_subsystems, self._dims, size, xp=self._xp
+        )
         new = rho * keep[:, None] * keep[None, :]
-        trace = np.real(np.trace(new))
+        trace = self._xp.real(self._xp.trace(new))
         self._state = new / trace if trace > 0 else new
         return idx
 
@@ -770,16 +774,18 @@ class NumpyDMEngine(_NumpyMatrixEngine):
         # `remaining` stays ascending, so rest-ket axes precede rest-bra axes and
         # the (dt, dt, rest, rest) regroup below is valid.
         remaining = [ax for ax in range(2 * n) if ax not in moved]
-        block = np.transpose(tensor, moved + remaining).reshape(dt, dt, rest, rest)
+        block = self._xp.transpose(tensor, moved + remaining).reshape(
+            dt, dt, rest, rest
+        )
 
-        rho_rest = np.trace(block, axis1=0, axis2=1)
-        post = np.zeros_like(block)
+        rho_rest = self._xp.trace(block, axis1=0, axis2=1)
+        post = self._xp.zeros_like(block)
         post[0, 0] = rho_rest
 
         rest_shape = tuple((self._reversed_dims * 2)[ax] for ax in remaining)
         post = post.reshape(local_dims + local_dims + rest_shape)
         inverse_perm = np.argsort(moved + remaining)
-        self._state = np.transpose(post, inverse_perm).reshape(rho.shape)
+        self._state = self._xp.transpose(post, inverse_perm).reshape(rho.shape)
 
 
 # --- operator engines ---
@@ -869,7 +875,7 @@ class NumpyUnitaryEngine(_NumpyOperatorEngine, NumpySVEngine):
 
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         assert initial_state is None, "operator execution has no initial state"
-        return np.eye(size, dtype=complex)
+        return self._xp.eye(size, dtype=complex)
 
     def _apply_local(
         self, state: np.ndarray, matrix: np.ndarray, targets: Sequence[int]
@@ -880,9 +886,11 @@ class NumpyUnitaryEngine(_NumpyOperatorEngine, NumpySVEngine):
         local_dims = tuple(self._dims[t] for t in targets)
         columns = state.shape[1]
         tensor = state.reshape(self._reversed_dims + (columns,))
-        m = np.asarray(matrix, dtype=complex).reshape(local_dims + local_dims)
+        m = self._matrix_array(matrix).reshape(local_dims + local_dims)
         target_axes = [n - 1 - q for q in targets]
-        return _contract_local(m, tensor, target_axes, n + 1, k).reshape(state.shape)
+        return _contract_local(m, tensor, target_axes, n + 1, k, xp=self._xp).reshape(
+            state.shape
+        )
 
 
 class NumpySuperopEngine(_NumpyOperatorEngine, NumpyDMEngine):
@@ -904,7 +912,7 @@ class NumpySuperopEngine(_NumpyOperatorEngine, NumpyDMEngine):
 
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         assert initial_state is None, "operator execution has no initial state"
-        return np.eye(size * size, dtype=complex)
+        return self._xp.eye(size * size, dtype=complex)
 
     def export_state(self) -> np.ndarray:
         """Export the super-operator in the public column-stacking convention.
@@ -913,7 +921,7 @@ class NumpySuperopEngine(_NumpyOperatorEngine, NumpyDMEngine):
         """
         size = prod(self._dims) if self._dims else 1
         internal = self.state.reshape((size,) * 4)
-        exported = np.empty_like(self.state, order="C")
+        exported = self._xp.empty_like(self.state, order="C")
         exported.reshape((size,) * 4)[...] = internal.transpose(1, 0, 3, 2)
         return exported
 
@@ -926,12 +934,12 @@ class NumpySuperopEngine(_NumpyOperatorEngine, NumpyDMEngine):
         local_dims = tuple(self._dims[t] for t in targets)
         columns = rho.shape[1]
         tensor = rho.reshape(self._reversed_dims * 2 + (columns,))
-        m = np.asarray(matrix, dtype=complex).reshape(local_dims + local_dims)
+        m = self._matrix_array(matrix).reshape(local_dims + local_dims)
         total = 2 * n + 1
         ket_axes = [n - 1 - q for q in targets]
         bra_axes = [2 * n - 1 - q for q in targets]
-        tensor = _contract_local(m, tensor, ket_axes, total, k)
-        tensor = _contract_local(m.conj(), tensor, bra_axes, total, k)
+        tensor = _contract_local(m, tensor, ket_axes, total, k, xp=self._xp)
+        tensor = _contract_local(m.conj(), tensor, bra_axes, total, k, xp=self._xp)
         return tensor.reshape(rho.shape)
 
     def reset_subsystems(

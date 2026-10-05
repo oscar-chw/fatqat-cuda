@@ -27,7 +27,7 @@ counts = backend.run(bell, shots=1000).result().get_counts()
 ```
 
 The default implementation map covers FATQAT's built-in matrix gates.
-State methods also support measurement, reset, and classical conditions.
+CPU state methods also support measurement, reset, and classical conditions.
 `Barrier` has no numerical effect.
 
 ## Methods
@@ -81,6 +81,23 @@ compiles kernels on first use and supports threaded kernels. `"numpy"` runs
 directly without compilation. Both runtimes support the methods offered by
 each backend, but need not produce bit-identical floating-point or sampled
 results.
+
+`Simulator(method="SV", runtime="cuda", device_id=0)` selects the built-in
+NVIDIA GPU engine. It supports all four methods with complex128 values and
+ordinary FatQat results. CUDA statevectors require ideal single-pass circuits
+with terminal measurement. Density matrices also support finite channels,
+reset, intermediate measurement and feedforward, with dynamic shots executed
+serially. Unitary and superoperator execution follow the method restrictions
+above. Parameter sweeps and state observables are supported within these
+limits; readout confusion remains a classical reporting operation.
+
+CUDA accepts `auto` or `serial` parallelism controls, `max_workers=None`, and
+`fusion=False`; CPU workers and fusion are rejected. The superconducting
+matrix simulators inherit this coverage. `AtomArraySimulator` rejects CUDA,
+and pulse emulation has no CUDA runtime. `device_id=None` selects GPU 0 for
+CUDA; CPU runtimes require `None`. Availability failures occur at execution
+and are captured in an ERROR Job. See the [CUDA runtime](cupy-simulator.md) for
+installation, device selection, memory, Estimator transfers and precision.
 
 `simulation_config` changes one call to [`Simulator.run`][fatqat.simulator.Simulator.run]. Its string
 values are case-sensitive.

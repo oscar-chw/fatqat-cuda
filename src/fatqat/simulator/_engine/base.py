@@ -28,6 +28,9 @@ class MatrixEngine(ABC):
     _supports_kernel_threads = False
     _thread_capacity = 1
     _supports_fusion = False
+    _supported_execution_shapes = frozenset({"operator", "single_pass", "per_shot"})
+    _supports_shot_workers = True
+    _supports_resident_expectation = False
 
     def __init__(
         self,
@@ -42,6 +45,14 @@ class MatrixEngine(ABC):
         self._dims: tuple[int, ...] = ()
         self._reversed_dims: tuple[int, ...] = ()
         self._n_clbits = 0
+
+    @property
+    def _xp(self):
+        """Array namespace for local numerical primitives; orchestration stays on CPU."""
+        return np
+
+    def _matrix_array(self, matrix):
+        return self._xp.asarray(matrix, dtype=complex)
 
     @property
     def state(self) -> np.ndarray:
@@ -64,6 +75,9 @@ class MatrixEngine(ABC):
             supports_kernel_threads=self._supports_kernel_threads,
             thread_capacity=self._thread_capacity,
             supports_fusion=self._supports_fusion,
+            supported_execution_shapes=self._supported_execution_shapes,
+            supports_shot_workers=self._supports_shot_workers,
+            supports_resident_expectation=self._supports_resident_expectation,
         )
 
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
@@ -163,6 +177,25 @@ class MatrixEngine(ABC):
         Export the current state of the engine as a numpy array.
         """
         return self.state.copy()
+
+    def expectation_values(self, state, observables):
+        """Evaluate exact term lists without constructing full operators.
+
+        The CPU path uses the existing reference/compiled contractions. Device
+        engines can keep their intermediate state resident and return only
+        scalar values through this same private execution boundary.
+        """
+        from ..._expectation import (
+            expectation_density_matrix,
+            expectation_statevector,
+        )
+
+        kernel = (
+            expectation_statevector
+            if self.state_semantics == "sv"
+            else expectation_density_matrix
+        )
+        return tuple(kernel(state, terms) for terms in observables)
 
     def sample_indices(self, shots: int, rng: np.random.Generator) -> np.ndarray:
         """

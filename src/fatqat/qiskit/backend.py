@@ -33,8 +33,8 @@ class FatqatBackend(BackendV2):
         method: FATQAT simulation method. Defaults to ``"statevector"`` and
             accepts the same case-insensitive names and aliases as
             :class:`fatqat.simulator.Simulator`.
-        runtime: FATQAT numerical runtime, ``"numpy"`` (default) or
-            ``"numba"``, case-insensitive.
+        runtime: FATQAT numerical runtime, ``"numpy"`` (default),
+            ``"numba"``, or ``"cuda"`` (ideal statevector on visible GPU 0), case-insensitive.
         noise_model: Optional FATQAT :class:`~fatqat.NoiseModel`. Qiskit Aer
             noise models are not accepted.
         provider: Provider reported through the Qiskit backend interface.

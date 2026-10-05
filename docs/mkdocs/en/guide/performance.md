@@ -29,7 +29,10 @@ A statevector stores one complex entry per basis state. A density matrix or
 unitary stores a square array, and a super-operator is square in the already
 squared density-matrix space. In terms of total dimension `D`, their entry
 counts scale as `D`, `D**2`, `D**2`, and `D**4`, respectively. Temporary work
-space and backend overhead add to these lower-level counts.
+space and backend overhead add to these lower-level counts. With complex128
+values, multiply each entry count by 16 to obtain the primary array size in
+bytes. GPU execution has the same representation costs, plus device
+temporaries and any requested host copies.
 
 The growth is exponential in both subsystem count and local dimension:
 
@@ -118,7 +121,25 @@ FatQat's general simulator offers two CPU runtimes:
 Neither choice changes the Program or the modeled mathematics. Compilation,
 array-library behavior, CPU, operating system, Program shape, and repetition
 count all affect the result, so benchmark rather than assuming one runtime is
-always preferable. FatQat does not currently provide a GPU runtime.
+always preferable.
+
+The built-in [CUDA runtime](../api/cupy-simulator.md) executes statevector,
+density-matrix, unitary and superoperator calculations with complex128
+precision. The CPU retains circuit preparation, validation, classical control
+and result construction; the evolving state or operator remains on the GPU.
+Use `Simulator("SV", runtime="cuda", device_id=0)` on an NVIDIA host, selecting
+another method when needed. Statevectors require ideal single-pass circuits;
+density matrices support channels, reset and dynamic measurements with serial
+shots. Operator methods retain their usual restrictions. CUDA does not
+accelerate atom occupancy or pulse emulation.
+
+Compare the same requested output and include host transfers in timing.
+Statevector and density-matrix Estimator requests retain the base state on the
+GPU and transfer only reduction data or samples. Requesting a full
+state or operator requires its transfer to the host. Include that cost when
+comparing runtimes, and measure both first-call and repeated-call behavior.
+Small circuits can favor CPU runtimes because GPU setup and launch costs may
+dominate.
 
 The following harness separates one untimed warm-up from repeated measurements
 and compares like-for-like final states:

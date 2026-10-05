@@ -167,12 +167,14 @@ class _SCProfileSimulator(Simulator):
         num_qubits: int,
         method: str = "statevector",
         runtime: str = "numba",
+        device_id: int | None = None,
         noise: NoiseModel | None = None,
     ) -> None:
         self._num_qubits = num_qubits
         super().__init__(
             method=method,
             runtime=runtime,
+            device_id=device_id,
             implementation_map=implementation_map,
             noise=noise,
         )
@@ -254,7 +256,7 @@ def _sx_implementation_map(
 class SCQubitSimulator(_SCProfileSimulator):
     """Simulate FatQat's constrained superconducting reference profile.
 
-    A thin statevector-method :py:class:`~fatqat.simulator.Simulator`
+    A thin matrix-method :py:class:`~fatqat.simulator.Simulator`
     specialization: same execution engine, same
     :py:class:`~fatqat.Result`/:py:class:`~fatqat.Job` semantics. The
     differences are a configurable coupling graph, a fixed native gate set
@@ -276,6 +278,7 @@ class SCQubitSimulator(_SCProfileSimulator):
         couplings: tuple[tuple[int, int], ...] = DEFAULT_COUPLINGS,
         method: str = "statevector",
         runtime: str = "numba",
+        device_id: int | None = None,
         noise: NoiseModel | None = None,
     ) -> None:
         """Create a constrained superconducting simulator.
@@ -286,6 +289,8 @@ class SCQubitSimulator(_SCProfileSimulator):
             method: State representation, exactly as on
                 :py:class:`~fatqat.simulator.Simulator`.
             runtime: Numeric execution runtime, exactly as on
+                :py:class:`~fatqat.simulator.Simulator`.
+            device_id: CUDA device selection, exactly as on
                 :py:class:`~fatqat.simulator.Simulator`.
             noise: Optional :py:class:`~fatqat.NoiseModel`, exactly as on
                 :py:class:`~fatqat.simulator.Simulator`. ``None`` (the
@@ -302,6 +307,7 @@ class SCQubitSimulator(_SCProfileSimulator):
         super().__init__(
             method=method,
             runtime=runtime,
+            device_id=device_id,
             implementation_map=_sx_implementation_map(couplings),
             num_qubits=num_qubits,
             noise=noise,
@@ -386,7 +392,7 @@ def _rotation_implementation_map(
 class _SCQubitRotationSimulator(_SCProfileSimulator):
     """Simulate the private rotation-based superconducting profile.
 
-    A thin statevector-method :py:class:`~fatqat.simulator.Simulator`
+    A thin matrix-method :py:class:`~fatqat.simulator.Simulator`
     specialization: same execution engine, same
     :py:class:`~fatqat.Result`/:py:class:`~fatqat.Job` semantics. The
     differences are a configurable coupling graph, a fixed native gate set
@@ -408,6 +414,7 @@ class _SCQubitRotationSimulator(_SCProfileSimulator):
         couplings: tuple[tuple[int, int], ...] = DEFAULT_COUPLINGS,
         method: str = "statevector",
         runtime: str = "numba",
+        device_id: int | None = None,
         noise: NoiseModel | None = None,
     ) -> None:
         """Create the private rotation-profile simulator.
@@ -418,6 +425,8 @@ class _SCQubitRotationSimulator(_SCProfileSimulator):
             method: State representation, exactly as on
                 :py:class:`~fatqat.simulator.Simulator`.
             runtime: Numeric execution runtime, exactly as on
+                :py:class:`~fatqat.simulator.Simulator`.
+            device_id: CUDA device selection, exactly as on
                 :py:class:`~fatqat.simulator.Simulator`.
             noise: Optional :py:class:`~fatqat.NoiseModel`, exactly as on
                 :py:class:`~fatqat.simulator.Simulator`. ``None`` (the
@@ -436,6 +445,7 @@ class _SCQubitRotationSimulator(_SCProfileSimulator):
             num_qubits=num_qubits,
             method=method,
             runtime=runtime,
+            device_id=device_id,
             noise=noise,
         )
 

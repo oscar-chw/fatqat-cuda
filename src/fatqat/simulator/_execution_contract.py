@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
-import numpy as np
 
 from .._backends.engine_contract import _ResultRequest
 
@@ -33,6 +32,11 @@ class _EngineCapabilities:
     supports_kernel_threads: bool
     thread_capacity: int
     supports_fusion: bool
+    supported_execution_shapes: frozenset[ExecutionShape] = frozenset(
+        {"operator", "single_pass", "per_shot"}
+    )
+    supports_shot_workers: bool = True
+    supports_resident_expectation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,5 +60,6 @@ class _ExecutionContext:
     n_clbits: int
     shots: int
     seed: int | None
-    initial_state: np.ndarray | None
+    # Private resident engines may pass their native array; initialize owns a copy.
+    initial_state: Any
     initial_occupied: frozenset[int] | None

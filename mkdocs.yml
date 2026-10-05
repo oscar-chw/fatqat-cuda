@@ -178,6 +178,7 @@ nav:
           - Simulators:
               - api/simulators/index.md
               - General simulator: api/simulator.md
+              - CUDA runtime: api/cupy-simulator.md
               - Superconducting profile: api/simulators/sc-qubit.md
               - Atom-array profile: api/simulators/atom-array.md
           - Emulators:

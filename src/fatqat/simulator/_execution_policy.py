@@ -249,7 +249,12 @@ def _resolve_execution_policy(
         use_compiled = True
     else:
         process_workers = _process_worker_ceiling(simulation.max_workers)
-        if shot_shardable and shots >= _PARALLEL_MIN_SHOTS and process_workers > 1:
+        if (
+            capabilities.supports_shot_workers
+            and shot_shardable
+            and shots >= _PARALLEL_MIN_SHOTS
+            and process_workers > 1
+        ):
             shot_strategy = "processes"
             kernel_strategy = "serial"
             worker_limit = process_workers

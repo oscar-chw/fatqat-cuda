@@ -28,6 +28,14 @@ cd fatqat
 python -m pip install .
 ```
 
+For built-in NVIDIA CUDA matrix execution in this checkout, install
+`python -m pip install '.[cuda13]'` (CUDA 13) or `'.[cuda12]'` (CUDA 12), then use
+`fq.simulator.Simulator("SV", runtime="cuda", device_id=0)`. Select exactly one
+CUDA extra. CUDA supports statevectors, density matrices, unitaries and
+superoperators with method-specific restrictions. The
+[CUDA runtime guide](docs/mkdocs/en/api/cupy-simulator.md) describes coverage,
+precision and the tested environment. CPU installations need neither extra.
+
 ## Run a first Program
 
 This Bell-state example contains the complete circuit-level workflow:

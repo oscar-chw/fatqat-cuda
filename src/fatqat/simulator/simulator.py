@@ -1,6 +1,6 @@
 """Matrix-based gate-level simulation.
 
-``Simulator`` runs gate-level programs with a NumPy or Numba runtime. For
+``Simulator`` runs gate-level programs with a NumPy, Numba, or CUDA runtime. For
 pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 """
 
@@ -19,8 +19,6 @@ from .._expectation import (
     _combine_term_statistics,
     _plan_term_occurrences,
     _reduce_outcome_counts,
-    expectation_density_matrix,
-    expectation_statevector,
 )
 from .._parameter_binding import (
     _discover_parameters,
@@ -322,6 +320,7 @@ class Simulator:
         method: str = "statevector",
         *,
         runtime: str = "numba",
+        device_id: int | None = None,
         implementation_map: MatrixImplementationMap | None = None,
         noise: NoiseModel | None = None,
         channel_implementation_map: ChannelImplementationMap | None = None,
@@ -336,7 +335,19 @@ class Simulator:
                 default) lazily JIT-compiles its kernels and provides the
                 runtime's threaded and fusion paths. ``"numpy"`` executes the
                 reference kernels directly without JIT warm-up. Both support
-                every method, but are not promised to be bit-identical.
+                every method. ``"cuda"`` executes all four methods on an
+                NVIDIA GPU using complex128 values. CUDA statevectors require
+                ideal single-pass circuits with terminal measurement. Density
+                matrices also support channels, reset, intermediate measurement
+                and feedforward, with dynamic shots executed serially. Operator
+                methods retain their usual restrictions. CUDA rejects CPU
+                workers and fusion.
+                Runtimes are not promised to be bit-identical.
+            device_id: Nonnegative CUDA device ordinal among the process's
+                visible GPUs. ``None`` selects device 0 for ``runtime="cuda"``.
+                CPU runtimes require ``None``. CuPy and device availability
+                are checked when execution starts; failures produce an ERROR
+                Job whose ``result()`` re-raises the error.
             implementation_map: Matrix rules for supported operations.
                 ``None`` uses ``default_matrix_implementation_map()``.
             noise: Noise model applied to every run. ``None`` means ideal
@@ -362,9 +373,13 @@ class Simulator:
                 "'superop'"
             )
         normalized_runtime = str(runtime).lower()
-        if normalized_runtime not in ("numpy", "numba"):
+        if normalized_runtime not in ("numpy", "numba", "cuda"):
             raise BackendValidationError(
-                f"unsupported runtime={runtime!r}; expected 'numpy' or 'numba'"
+                f"unsupported runtime={runtime!r}; expected 'numpy', 'numba', or 'cuda'"
+            )
+        if normalized_runtime != "cuda" and device_id is not None:
+            raise BackendValidationError(
+                "device_id is only supported by runtime='cuda'"
             )
         # The single dispatch point; the canonical method name doubles as the
         # native result field name.
@@ -386,6 +401,16 @@ class Simulator:
                     "fatqat to repair the environment"
                 ) from exc
             self._engine_cls = getattr(nb, spec.numba_engine_name)
+        elif normalized_runtime == "cuda":
+            # Importing our engine does not import CuPy or initialize a device.
+            from ._engine import cupy
+
+            self._engine_cls = {
+                "statevector": cupy.CupySVEngine,
+                "density_matrix": cupy.CupyDMEngine,
+                "unitary": cupy.CupyUnitaryEngine,
+                "superop": cupy.CupySuperopEngine,
+            }[normalized]
         self._runtime = normalized_runtime
 
         if implementation_map is None:
@@ -402,7 +427,12 @@ class Simulator:
         # The engine object and its dimension-dependent numeric caches are
         # reused, while every execution allocates or resets evolving state.
         # A backend instance is not safe for concurrent run() calls.
-        self._engine = self._engine_cls()
+        if normalized_runtime == "cuda":
+            self._engine = self._engine_cls(
+                device_id=0 if device_id is None else device_id
+            )
+        else:
+            self._engine = self._engine_cls()
 
     @property
     def method(self) -> str:
@@ -980,6 +1010,7 @@ class Simulator:
             plan, facts, initial_occupied = self._prepare_parametric_program(
                 program, context=lowering, param_order=param_order
             )
+        self._validate_runtime_config(simulation=simulation, facts=facts)
         return _PreparedExecution(
             plan=plan,
             facts=facts,
@@ -1286,16 +1317,25 @@ class Simulator:
     def _execute_expectation_base(
         self,
         prepared: _PreparedExpectation,
-    ) -> np.ndarray:
-        """Execute the prepared base plan once and return its internal state."""
+    ) -> Any:
+        """Evolve once and retain an engine-native intermediate state.
+
+        Device state stays private to the engine boundary. Public run() state
+        requests still use export_state() and return ordinary NumPy arrays.
+        """
         execution = prepared.execution
         plan = execution.plan
         assert isinstance(plan, tuple)
         if prepared.state_policy is None:
             raise RuntimeError("expectation base execution has no resolved policy")
+        resident = self._engine.capabilities.supports_resident_expectation
         context = _ExecutionContext(
             execution_shape=execution.facts.execution_shape,
-            request=prepared.state_request,
+            request=(
+                replace(prepared.state_request, **{self._state_field: False})
+                if resident
+                else prepared.state_request
+            ),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
             shots=1,
@@ -1309,6 +1349,10 @@ class Simulator:
             context=context,
             policy=prepared.state_policy,
         )
+        if resident:
+            # The next execution allocates an owned copy of initial_state;
+            # retaining this reference therefore preserves the base state.
+            return self._engine.state
         if raw.state is None:
             raise RuntimeError("expectation base execution returned no state")
         return raw.state
@@ -1319,11 +1363,6 @@ class Simulator:
     ) -> tuple[float, ...]:
         """Contract every observable against one backend-evolved state."""
         state = self._execute_expectation_base(prepared)
-        kernel = (
-            expectation_statevector
-            if self._state_field == "statevector"
-            else expectation_density_matrix
-        )
         allocation = prepared.execution.lowering.engine_allocation
         terms_by_observable = [[] for _constant in prepared.constants]
         for bound in prepared.bound_occurrences:
@@ -1334,13 +1373,12 @@ class Simulator:
             terms_by_observable[bound.occurrence.observable_index].append(
                 (bound.occurrence.coefficient, kernel_factors)
             )
+        values = self._engine.expectation_values(
+            state, tuple(tuple(terms) for terms in terms_by_observable)
+        )
         return tuple(
-            constant + kernel(state, tuple(terms))
-            for constant, terms in zip(
-                prepared.constants,
-                terms_by_observable,
-                strict=True,
-            )
+            constant + value
+            for constant, value in zip(prepared.constants, values, strict=True)
         )
 
     def _execute_sampled_expectation(
@@ -1372,7 +1410,11 @@ class Simulator:
                 ),
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
-                initial_state=base_state.copy() if base_state is not None else None,
+                initial_state=(
+                    base_state
+                    if self._engine.capabilities.supports_resident_expectation
+                    else base_state.copy() if base_state is not None else None
+                ),
                 initial_occupied=execution.initial_occupied,
             )
             plan = execution.plan
@@ -1621,6 +1663,32 @@ class Simulator:
                 "program's channel)"
             )
 
+    def _validate_runtime_config(
+        self, *, simulation: _SimulationConfig, facts: _PlanFacts
+    ) -> None:
+        """Check runtime limits shared by runs, sweeps, and estimators.
+
+        This runs before the backend extension hook: a subclass's additional
+        validation must not accidentally remove the numerical runtime's limits.
+        """
+        capabilities = self._engine.capabilities
+        if facts.execution_shape not in capabilities.supported_execution_shapes:
+            raise BackendValidationError(
+                f"runtime={self._runtime!r} supports ideal single-pass circuits with terminal "
+                "measurement; intermediate measurement, reset, quantum channels, loss, and feedforward "
+                "are unsupported"
+            )
+        if not capabilities.supports_shot_workers and (
+            simulation.shot_parallelism not in ("auto", "serial")
+            or simulation.kernel_parallelism not in ("auto", "serial")
+            or simulation.max_workers is not None
+            or simulation.fusion
+        ):
+            raise BackendValidationError(
+                f"runtime={self._runtime!r} does not support CPU workers, threads, processes, "
+                "or fusion; use auto/serial and max_workers=None"
+            )
+
     def _validate_additional_config(
         self,
         *,
@@ -1647,6 +1715,17 @@ class Simulator:
         policy: _ExecutionPolicy,
     ) -> RawResult:
         """Materialize once in the parent, then dispatch the opaque payload."""
+        capabilities = self._engine.capabilities
+        if (
+            context.execution_shape not in capabilities.supported_execution_shapes
+            or not capabilities.supports_shot_workers
+            and policy.shot_strategy not in ("none", "serial")
+        ):
+            # Process dispatch bypasses execute_local; never send device state
+            # or an implicitly selected device to the CPU shot worker pool.
+            raise BackendValidationError(
+                f"runtime={self._runtime!r} does not support dynamic shots"
+            )
         local_policy = _materialization_policy(policy)
         payload = self._engine.materialize_execution(
             plan,

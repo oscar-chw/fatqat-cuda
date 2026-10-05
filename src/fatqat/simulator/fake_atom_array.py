@@ -100,7 +100,8 @@ class AtomArraySimulator(Simulator):
                 (or ``"DM"``). Names are case-insensitive.
             runtime: ``"numba"`` (default, lazy JIT) or ``"numpy"`` (direct
                 execution). See ``Simulator`` for runtime-specific
-                execution controls.
+                execution controls. CUDA does not support this backend
+                because its occupancy lifecycle requires dynamic shots.
             noise: Optional ``NoiseModel``. ``None`` keeps the backend ideal;
                 this class has no built-in reference noise model.
 
@@ -108,6 +109,11 @@ class AtomArraySimulator(Simulator):
             BackendValidationError: If ``method`` or ``runtime`` is invalid,
                 or ``noise`` contains a source this simulator cannot run.
         """
+        if str(runtime).lower() == "cuda":
+            raise BackendValidationError(
+                "AtomArraySimulator does not support runtime='cuda'; its occupancy "
+                "lifecycle requires dynamic shots"
+            )
         canonical_method = _canonicalize_method(
             method, {"statevector", "density_matrix"}
         )
