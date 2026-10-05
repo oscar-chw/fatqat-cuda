@@ -587,7 +587,10 @@ class CupyDMEngine(_CupyStateRuntime, NumpyDMEngine):
         return NumpyDMEngine.probabilities(self)
 
 
-class CupyUnitaryEngine(_CupyRuntime, NumpyUnitaryEngine):
+# Like its NumPy parent, an operator engine deliberately does not sample.
+class CupyUnitaryEngine(  # pylint: disable=abstract-method
+    _CupyRuntime, NumpyUnitaryEngine
+):
     """CUDA local-operator application to all unitary columns together."""
 
     _supported_execution_shapes = frozenset({"operator"})
@@ -604,7 +607,10 @@ class CupyUnitaryEngine(_CupyRuntime, NumpyUnitaryEngine):
         return super()._apply_local(state, matrix, targets)
 
 
-class CupySuperopEngine(_CupyRuntime, NumpySuperopEngine):
+# Like its NumPy parent, an operator engine deliberately does not sample.
+class CupySuperopEngine(  # pylint: disable=abstract-method
+    _CupyRuntime, NumpySuperopEngine
+):
     """CUDA channel maps with the existing public vectorization convention."""
 
     _supported_execution_shapes = frozenset({"operator"})
