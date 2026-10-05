@@ -12,6 +12,57 @@ as part of coursework for CENG5280, 2026-27 Term 1.
 
 Implemented with AI coding agents under Oscar's design and review.
 
+The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
+
+```mermaid
+flowchart TB
+  P[("Program + Simulator<br/>method, runtime, device_id")]:::data
+  subgraph HOST["Host CPU: FatQat's existing contracts"]
+    L["validate, bind parameters,<br/>lower once"]:::step
+    E[("immutable execution plan:<br/>matrices, channels, measurements")]:::data
+    C{"execution policy +<br/>engine capabilities"}:::gate
+    X["BackendValidationError"]:::gate
+    N["NumPy / Numba<br/>CPU engine"]:::step
+    F["math.fsum of<br/>partial sums"]:::step
+    D["decode indices<br/>to counts"]:::step
+    J[("Job / Result<br/>NumPy arrays, counts, values")]:::out
+  end
+  subgraph DEV["One CUDA device: cupy.py engines"]
+    S[("resident complex128<br/>state or operator")]:::key
+    K["FatQat gate and<br/>Kraus kernels"]:::key
+    O["compensated partial<br/>reductions"]:::key
+    M["probability<br/>sampling"]:::key
+  end
+  PE["pulse emulation:<br/>PulseEngine, QuTiP"]:::ext
+
+  P -->|"Program"| L
+  L -->|"plan + facts"| E
+  E -->|"execution shape"| C
+  C -->|"shape or controls<br/>unsupported"| X
+  C -->|"numpy / numba"| N
+  N -->|"NumPy state, counts"| J
+  C ==>|"runtime='cuda'"| S
+  E ==>|"matrices uploaded once<br/>per execution"| K
+  K ==>|"updates in place"| S
+  S ==>|"state stays on device"| O
+  O ==>|"≤ 4096 doubles per term"| F
+  F ==>|"expectation values"| J
+  S -->|"probabilities stay"| M
+  M -->|"sampled indices"| D
+  D -->|"counts"| J
+  S -.->|"full copy only if<br/>state requested"| J
+  P -.->|"Hamiltonian emulation:<br/>CPU only"| PE
+
+  classDef data fill:#dbeafe,stroke:#1d4ed8,color:#0b1220
+  classDef step fill:#f1f5f9,stroke:#475569,color:#0b1220
+  classDef gate fill:#fef3c7,stroke:#b45309,color:#0b1220
+  classDef out  fill:#dcfce7,stroke:#15803d,color:#0b1220
+  classDef ext  fill:#f8fafc,stroke:#94a3b8,color:#0b1220,stroke-dasharray:4 3
+  classDef key  fill:#ede9fe,stroke:#6d28d9,color:#0b1220,stroke-width:2px
+```
+
+Where in the code: `src/fatqat/simulator/simulator.py` (`Simulator.__init__`, `_validate_runtime_config`, `_execute_expectation_base`), `src/fatqat/simulator/planning.py`, `src/fatqat/simulator/_execution_policy.py`, `src/fatqat/simulator/_execution_contract.py` (`_EngineCapabilities`), `src/fatqat/simulator/_engine/` (`np.py`, `nb.py`, `cupy.py`), `src/fatqat/emulator/_core/engine.py` (`PulseEngine`).
+
 ## Problem
 
 FatQat's general simulator runs on the CPU, through NumPy or compiled Numba.
@@ -44,6 +95,42 @@ unchanged.
   array-namespace hook that defaults to NumPy, so the CUDA engine can reuse
   its code. Eight CPU fixtures, RNG state included, are bit-identical to
   upstream (`verification.json`).
+
+What crosses between host and device on each kind of call. Everything not drawn as an arrow stays where it is.
+
+```mermaid
+sequenceDiagram
+  participant U as Caller
+  participant H as Simulator (host)
+  participant G as GPU memory
+  Note over H,G: every call
+  H->>G: gate/Kraus matrices, uploaded once per execution
+  opt initial_state given
+    H->>G: host array copied into owned device state
+  end
+  H->>G: kernels queued, state updated in place
+  H->>G: synchronize stream before the Job is DONE
+  alt run() with final state requested
+    G-->>H: full state or operator (export_state)
+    H-->>U: NumPy array
+  else run() with counts
+    H->>G: uniforms from the seeded host RNG
+    G-->>H: sampled indices only
+    H-->>U: counts decoded on host
+  else Estimator, exact
+    Note over G: evolved state kept resident
+    G-->>H: ≤ 4096 partial sums per term
+    H-->>U: math.fsum, then expectation values
+  else Estimator, sampled
+    Note over G: base state kept resident
+    G->>G: device-to-device copy for each measurement tail
+    G-->>H: sampled indices only
+    H-->>U: estimates from counts
+  end
+  Note over H,G: matrix uploads released after each execution
+```
+
+Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `_matrix_array`, `_allocate`, `export_state`, `sample_indices`, `expectation_values`), `src/fatqat/simulator/simulator.py` (`_execute_expectation_base`, `_execute_sampled_expectation`); tests: `tests/simulator/test_cuda_resident.py`.
 
 Coverage and per-method restrictions are in the
 [CUDA runtime guide](docs/mkdocs/en/api/cupy-simulator.md).
@@ -134,6 +221,46 @@ CUDA 13.2 and CuPy 14.2. The CUDA 12 extra is packaged but has
 not been tested on a device.
 
 ## Limits
+
+Which requests run on the GPU, and what happens to the rest: thin solid arrows end in `BackendValidationError`, dotted ones have no CUDA path at all.
+
+```mermaid
+flowchart LR
+  R(["request with<br/>runtime='cuda'"]):::data
+  subgraph YES["Covered: runs on one GPU"]
+    SV["statevector: ideal,<br/>terminal measurement"]:::key
+    DM["density matrix: channels,<br/>reset, mid-circuit, feedforward"]:::key
+    OP["unitary and<br/>superoperator maps"]:::key
+    EST["Estimator: exact and<br/>sampled SV / DM"]:::key
+    SC["superconducting<br/>hardware profiles"]:::key
+  end
+  subgraph NO["Not covered"]
+    TRAJ["stochastic SV trajectories:<br/>channels, reset,<br/>mid-circuit, feedforward"]:::gate
+    ATOM["AtomArraySimulator:<br/>occupancy and loss"]:::gate
+    PULSE["pulse emulation"]:::ext
+    APPLE["Apple GPUs"]:::ext
+    MULTI["one state split<br/>across several GPUs"]:::ext
+  end
+  R ==>|"single_pass shape"| SV
+  R ==>|"dynamic shots run serially"| DM
+  R ==>|"operator shape"| OP
+  R ==>|"state stays resident"| EST
+  R ==>|"device_id forwarded"| SC
+  R -->|"CUDA SV rejects:<br/>BackendValidationError"| TRAJ
+  R -->|"rejected at construction"| ATOM
+  R -.->|"no CUDA runtime;<br/>CPU path unchanged"| PULSE
+  R -.->|"no Metal engine"| APPLE
+  R -.->|"one device_id<br/>per Simulator"| MULTI
+
+  classDef data fill:#dbeafe,stroke:#1d4ed8,color:#0b1220
+  classDef step fill:#f1f5f9,stroke:#475569,color:#0b1220
+  classDef gate fill:#fef3c7,stroke:#b45309,color:#0b1220
+  classDef out  fill:#dcfce7,stroke:#15803d,color:#0b1220
+  classDef ext  fill:#f8fafc,stroke:#94a3b8,color:#0b1220,stroke-dasharray:4 3
+  classDef key  fill:#ede9fe,stroke:#6d28d9,color:#0b1220,stroke-width:2px
+```
+
+Where in the code: `src/fatqat/simulator/simulator.py` (`_validate_runtime_config`), `src/fatqat/simulator/_engine/cupy.py` (`_supported_execution_shapes`, `CupySVEngine.materialize_execution`), `src/fatqat/simulator/fake_atom_array.py`, `src/fatqat/simulator/fake_superconducting.py`; coverage table: [CUDA runtime guide](docs/mkdocs/en/api/cupy-simulator.md).
 
 - **Not covered:**
   - pulse emulation;
