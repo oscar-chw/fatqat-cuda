@@ -162,14 +162,14 @@ on two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable 
 | One GPU vs CPU, both r9 (full state copied back) | 24–28 qubits | 16–25× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
 | One GPU vs CPU, noisy density matrix and unitary (r8 code) | 11–14 qubits | 2.6–12.6× faster | [scaling.json](results/scaling.json) |
 | Unitary method with gate tiles vs without, one GPU, same run | 12–14 qubits | 1.28–1.42× faster, same memory | [ab-unitary-tiles.json](results/ab-unitary-tiles.json) |
-| CPU only, r10 tiles (controls and diagonals take no tile bit) vs r9 tiles, Numba engine loop, QFT, adder, QAOA, Clifford+T | 24 qubits | 1.48–1.68× (QFT 27 → 5 passes); 2.2–2.5× vs per-gate passes | [tile-check.json](results/tile-check.json) |
-| CPU only, r10 `simplify=True` on a Clifford+T adder, QAOA and redundant Clifford+T | 20 qubits | 1.8–4.3× faster; error vs the ideal circuit 0.78 eps, not 2.9 | [simplify-check.json](results/simplify-check.json) |
-| Accuracy vs a 60-digit reference, 110 circuits, all four methods | up to 5 qubits | ≤ 3.1 eps on every runtime; GPU vs Numba −0.045 ± 0.031 eps | [precision.json](results/precision.json) |
+| r10 tiles (controls and diagonals take no tile bit) vs r9 tiles, same engine, QFT, adder, QAOA, Clifford+T | 24–26 qubits | GPU 1.06–2.48×, CPU 1.45–1.84× (QFT 47 → 7 passes); equal values | [tile-check-cuda.json](results/tile-check-cuda.json), [tile-check.json](results/tile-check.json) |
+| r10 `simplify=True` on a Clifford+T adder, QAOA and redundant Clifford+T | 20 (CPU), 26 (GPU) qubits | CPU 1.8–4.3×, GPU 1.0–2.75×; error vs the ideal circuit 0.8 eps, not 2.9–3.1 | [simplify-check.json](results/simplify-check.json), [simplify-check-cuda.json](results/simplify-check-cuda.json) |
+| r10 accuracy vs a 60-digit reference, 110 circuits, all four methods | up to 5 qubits | ≤ 2.9 eps on every runtime; GPU vs Numba −0.047 ± 0.033 eps | [precision-r10.json](results/precision-r10.json) |
 
 - **The GPU does not always win.** Density-matrix and unitary runs at 6–8 qubits were 0.22–1.38× in one run (5 of 9 slower on the GPU) and varied between runs; noisy density matrices returned in full gain least (2.6–8× at 11–14 qubits), while noisy density-matrix observables gain 10–12.6×.
 - **r9 is not faster everywhere.** Density-matrix GPU code did not change (0.96–1.04× in the same-run comparison), and the unitary gain is GPU-only: a simple CPU counterpart (narrower column blocks) was measured slower and not adopted.
-- **GPU accuracy is equal, not better.** GPU and Numba errors are statistically indistinguishable; NumPy is about 0.1 eps more accurate than both. Tiles give values equal to per-gate passes. `simplify` is bit-identical on Numba and CUDA where it rewrites only exact gates, and closer to the ideal circuit where rounding gates cancel.
-- **r10 is not yet measured on a GPU.** Its CUDA tile kernel follows the same rules as the CPU one and has tests, but the GPU rows above are r9.
+- **GPU accuracy is equal, not better.** r10 computes each part of a complex product with Kahan's algorithm for 2×2 determinants, within 2 ulp even under cancellation; GPU and Numba errors are still statistically indistinguishable (the GPU 0.047 eps ahead, standard error 0.033), and NumPy is about 0.1 eps ahead of both. Tiles give values equal to per-gate passes. `simplify` is bit-identical where it rewrites only exact gates, and closer to the ideal circuit where rounding gates cancel.
+- **On the GPU, `simplify` pays only on large states.** At 20 qubits a GPU applies a gate in microseconds and planning costs more than it saves; at 26 qubits it gains up to 2.75×, and on a Toffoli adder, whose gates already tile well, nothing.
 
 How each change keeps accuracy and memory: [docs/optimisations.md](docs/optimisations.md). Every row, r7/r8 history and how to rerun: [docs/benchmarks.md](docs/benchmarks.md).
 
@@ -198,6 +198,7 @@ tests/                     upstream suite plus the CUDA tests (tests/simulator/t
 perf/                      precision, scaling and sweep benchmarks, and the publication scrub check
 scripts/                   check.sh (tests, then demo.sh) and demo.sh (accuracy against a 60-digit reference)
 results/                   scrubbed benchmark and precision records, and how to read them
+prototypes/metal/          Apple-GPU prototype: software binary64, the tile kernel in Metal, CPU+GPU split
 docs/                      fork pages, the upstream README and design notes, the MkDocs site (docs/mkdocs/)
 .github/workflows/         upstream tests and lint, plus the fork's CPU-path CI
 LICENSE, NOTICE            Apache-2.0; the fork notice
@@ -208,7 +209,7 @@ Docs: see [docs/README.md](docs/README.md).
 
 ## Limits
 
-- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); stochastic statevector trajectories (CUDA statevectors reject channels, reset, mid-circuit measurement and feedforward); Apple GPUs; splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)).
+- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); stochastic statevector trajectories (CUDA statevectors reject channels, reset, mid-circuit measurement and feedforward); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba, and sharing each tile batch between the Apple GPU and the CPU is 1.28–1.45× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
 - The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
 - Several GPUs help only `run_sweep`, and scale sublinearly because each row's Python-side work runs one thread at a time; one simulation is never split across GPUs.
 - The CUDA 12 extra is packaged but has not been tested on a device.

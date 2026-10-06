@@ -223,9 +223,25 @@ def _insular_steps(rng, n, depth):
     """
     steps = []
     for _ in range(depth):
-        kind = int(rng.integers(8))
+        kind = int(rng.integers(10))
         width = 3 if kind in (0, 1, 2, 5) else 2
         targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+        if kind >= 8:
+            # Diagonals with controls and a moving target (CRZ, open-control
+            # and doubly controlled phases): some entries exactly 1.
+            phases = np.exp(1j * rng.normal(size=4))
+            matrix = [
+                np.diag([1, 1, phases[0], phases[1]]),
+                np.diag([phases[0], phases[1], 1, 1]),
+                np.diag([1] * 6 + list(phases[:2])),
+                np.diag([1] * 4 + list(phases)),
+                np.diag([1, phases[0]]),
+                np.diag([phases[0], 1]),
+            ][int(rng.integers(6))].astype(np.complex128)
+            width = matrix.shape[0].bit_length() - 1
+            targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+            steps.append(ApplyMatrixStep(matrix, targets))
+            continue
         if kind == 0:
             matrix = _controlled(_CX)
         elif kind == 1:

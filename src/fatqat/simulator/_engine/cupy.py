@@ -25,7 +25,6 @@ from .np import (
     _strides,
 )
 
-
 # Complex multiply and multiply-add with every rounding spelled out. Left to
 # the compiler, which product of ``m.x*a.x - m.y*a.y`` is fused into an FMA
 # differs between kernels, so equal source in two kernels can differ in the
@@ -298,7 +297,9 @@ class _CupyRuntime:
                 }
                 """
             source = source.replace("WIDTH", str(width)).replace("DIM", str(dim))
-            source = _COMPLEX_OPS + source.replace("MONOMIAL", str(int(permutation >= 0)))
+            source = _COMPLEX_OPS + source.replace(
+                "MONOMIAL", str(int(permutation >= 0))
+            )
             # No fast-math or reduced-precision mode; ordinary binary64 ops.
             self._kernels[key] = cp.RawKernel(source, "local_gate")
         work = state.size if diagonal else state.size // dim

@@ -157,8 +157,25 @@ All from 2026-10-06; every figure links its evidence file.
   1.50×; adder 1.48× (7 passes either way: there the gain is the cheaper
   residual gate). Against per-gate passes 2.2–2.5×. Every state equal to the
   per-gate one.
-- **r10 on the GPU:** written to the same rules as the CPU tiles and tested
-  on the CPU side; not yet measured on a GPU.
+- **r10 tiles, GPU** ([tile-check-cuda.json](../results/tile-check-cuda.json)):
+  one GPU, 26 qubits, timed to a device sync: QFT 47 → 7 passes, 2.48×
+  over tiles where every target takes a bit; Clifford+T 1.36×, adder 1.21×,
+  QAOA 1.06×; 1.7–4.1× over per-gate passes; every state equal to the
+  per-gate one. Gates on three qubits that round (a three-qubit diagonal, a
+  controlled two-qubit gate) stay out of CUDA tiles: alone they take a
+  cuBLAS path whose rounding differs.
+- **r10 simplification, GPU** ([simplify-check-cuda.json](../results/simplify-check-cuda.json)):
+  error against the ideal circuit 0.81 eps with `simplify` against 3.08
+  without; at 26 qubits, exact expectation values, redundant Clifford+T
+  2.75×, QAOA 1.30×, adder 1.02×, QFT 0.97×. At 20 qubits planning costs
+  more than a GPU saves, so on the GPU `simplify` is for large states.
+- **r10 accuracy** ([precision-r10.json](../results/precision-r10.json)):
+  the 110 circuits of `precision.json` again, every runtime ≤ 2.9 eps; Numba
+  minus GPU +0.047 eps (standard error 0.033). The GPU's complex products
+  now use Kahan's algorithm for 2×2 determinants (each part within 2 ulp,
+  even under cancellation), spelled out with explicit rounding so the
+  per-gate kernels and the tiles agree bit for bit; left to the compiler,
+  which product it fused differed between kernels.
 - **Several GPUs:** sweeps spread over two or more GPUs returned counts
   identical to a one-GPU sweep in every test; the speed-up is sublinear in
   the number of GPUs (see above). These measurements are not published.

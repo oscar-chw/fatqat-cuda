@@ -673,7 +673,18 @@ def _spread(k, places, values, count) -> int:  # pragma: no cover - compiled by 
 
 @njit(cache=True)
 def _tile_global_diagonal(
-    tile, base, width, targets, entries, places, values, count, offsets, local
+    tile,
+    base,
+    width,
+    targets,
+    entries,
+    places,
+    values,
+    count,
+    offsets,
+    local,
+    rows,
+    bits,
 ) -> None:  # pragma: no cover - compiled by Numba
     """A diagonal gate, applied only where its controls hold.
 
@@ -683,8 +694,6 @@ def _tile_global_diagonal(
     """
     fixed = 0
     inside = 0
-    rows = np.empty(3, dtype=np.int64)
-    bits = np.empty(3, dtype=np.int64)
     for p in range(width):
         target = targets[p]
         if target < 0:
@@ -808,6 +817,8 @@ def _tile_gates(
     offsets = np.empty(8, dtype=np.int64)
     gathered = np.empty(4, dtype=np.complex128)
     local = np.empty(8, dtype=np.complex128)
+    rows = np.empty(3, dtype=np.int64)
+    bits = np.empty(3, dtype=np.int64)
     for g in range(codes.shape[0]):
         if (base & rest[g, 0]) != rest[g, 1]:
             continue
@@ -816,7 +827,7 @@ def _tile_gates(
         if code == _GLOBAL_DIAGONAL:
             _tile_global_diagonal(
                 tile, base, width, targets[g], values[g], places, fixed, count,
-                offsets, local,
+                offsets, local, rows, bits,
             )  # fmt: skip
         elif width == 1 and code != _DIAGONAL:
             _tile_one_qubit(

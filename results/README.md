@@ -48,6 +48,11 @@ commit they name, which is in the public history:
 | --- | --- | --- |
 | `simplify-check.json` | `simplify=True` against the ideal circuit (exact gate definitions, 60 digits), paired per circuit on every CPU runtime, and wall time on four circuits | `perf/simplify_check.py` |
 | `tile-check.json` | Tiles where controls and diagonal gates take no tile bit, vs tiles where every target does and vs per-gate passes, with pass counts; same engine, arms alternating | `perf/tile_check.py --runtimes numba` |
+| `tile-check-cuda.json` | The same on one GPU, 26 qubits | `perf/tile_check.py --runtimes cuda --qubits 26` |
+| `simplify-check-cuda.json` | `simplify=True` on one GPU: accuracy against the ideal circuit, and timing at 26 qubits | `perf/simplify_check.py --runtimes cuda --qubits 26` |
+| `precision-r10.json` | The 110 circuits of `precision.json` on r10 code, every runtime | `perf/precision.py --require-gpu` |
+| `metal-prototype.json` | Apple-GPU prototype sharing each tile batch with Numba, against Numba alone; equality of every final state | `prototypes/metal/metal_engine.py` |
+| `metal-fp64-check.json` | Software binary64 on the Apple GPU against the CPU: 8 million multiplies and adds, and a one-qubit gate | `prototypes/metal/fp64check.swift` |
 
 ## Earlier record
 

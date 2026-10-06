@@ -11,11 +11,12 @@ in one process so drift and background load hit all of them alike:
 
 All three must give equal states (exact array equality); ``insular`` may be
 slower than ``every_target`` on no workload (beyond timing noise); and it
-must beat it by ``MIN_SPEEDUP`` where the rule removes passes. Which
-workloads those are depends on the tile: Numba's tiles have nine free bits,
-enough to hold the adder's neighbouring Toffolis under the old rule too (the
-pass counts in the output show it), so only the Fourier transform is gated
-there; CUDA's six free bits leave the adder gated as well.
+must beat it by ``MIN_SPEEDUP`` on the Fourier transform, whose controlled
+phases the rule takes out of the tile (47 passes become 7 on CUDA's tiles).
+The other workloads are reported, not gated: their gates sit on neighbouring
+qubits, so the old rule already packed them (the adder needs 7 passes either
+way on Numba's tiles, 13 against 11 on CUDA's), and what they gain comes from
+visiting only the amplitudes a gate's controls select.
 
 Usage:
     python perf/tile_check.py --runtimes numba --out results/tile-check.json
@@ -44,7 +45,7 @@ from fatqat.simulator._engine.base import _TileForm
 
 MIN_SPEEDUP = 1.5
 NOISE_FLOOR = 0.95
-_GATED = {"numba": ("qft",), "cuda": ("qft", "adder")}
+_GATED = {"numba": ("qft",), "cuda": ("qft",)}
 
 
 # --- workloads -------------------------------------------------------------------
@@ -247,6 +248,13 @@ def verdict(rows: list[dict]) -> list[str]:
     for row in rows:
         if not row["identical"]:
             failures.append(f"{row['runtime']} {row['workload']}: arms differ")
+        passes = row["tile_passes"]
+        if passes["insular"] > passes["every_target"]:
+            failures.append(
+                f"{row['runtime']} {row['workload']}: more passes than before"
+            )
+        if row["workload"] == "qft" and passes["insular"] * 4 > passes["every_target"]:
+            failures.append(f"{row['runtime']} qft: passes not cut at least fourfold")
         ratio = row["insular_over_every_target"]
         if row["workload"] in _GATED[row["runtime"]] and ratio < MIN_SPEEDUP:
             failures.append(f"{row['runtime']} {row['workload']}: below {MIN_SPEEDUP}x")

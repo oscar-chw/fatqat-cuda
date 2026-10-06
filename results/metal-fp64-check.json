@@ -1,0 +1,9 @@
+{
+  "cases" : 8000000,
+  "dense_1q_ms_per_gate_2_26" : 15.643590688705446,
+  "examples" : [
+
+  ],
+  "gate_mismatches" : 0,
+  "mismatches" : 0
+}

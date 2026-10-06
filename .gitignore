@@ -26,3 +26,7 @@ benchmarks/
 
 # uv is optional, per-user tooling; a local lockfile is a user artifact
 uv.lock
+
+# Built locally from prototypes/metal/engine.swift
+prototypes/metal/*.dylib
+prototypes/metal/fp64check

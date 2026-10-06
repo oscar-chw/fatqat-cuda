@@ -1,0 +1,111 @@
+{
+ "description": "Prototype Metal engine (software binary64 tiles on the Apple GPU, sharing each tile batch with Numba on the CPU) against Numba alone; same process, arms alternating.",
+ "measurement_date": "2026-10-06",
+ "code_revision": "bf18feb",
+ "rows": [
+  {
+   "workload": "qft",
+   "qubits": 24,
+   "steps": 324,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 0.5761210001073778,
+    "metal_0.40": 0.44890412501990795
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.2833943107157415
+   }
+  },
+  {
+   "workload": "adder",
+   "qubits": 24,
+   "steps": 397,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 0.9383394159376621,
+    "metal_0.40": 0.6606543338857591
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.4203182629842863
+   }
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 24,
+   "steps": 360,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 1.1056402921676636,
+    "metal_0.40": 0.8268161253072321
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.337226329199645
+   }
+  },
+  {
+   "workload": "clifford_t",
+   "qubits": 24,
+   "steps": 600,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 1.6698799589648843,
+    "metal_0.40": 1.2092572920955718
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.3809136979203827
+   }
+  },
+  {
+   "workload": "qft",
+   "qubits": 26,
+   "steps": 377,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 2.4765147077850997,
+    "metal_0.40": 1.926786667201668
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.285308202480879
+   }
+  },
+  {
+   "workload": "adder",
+   "qubits": 26,
+   "steps": 433,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 3.9543585828505456,
+    "metal_0.40": 2.7359689171426
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.445322919450566
+   }
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 26,
+   "steps": 390,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 4.315997167024761,
+    "metal_0.40": 3.3509015417657793
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.2880107377760848
+   }
+  },
+  {
+   "workload": "clifford_t",
+   "qubits": 26,
+   "steps": 600,
+   "identical_to_numba": true,
+   "median_s": {
+    "numba": 6.33117058314383,
+    "metal_0.40": 4.615874166600406
+   },
+   "speedup_over_numba": {
+    "metal_0.40": 1.3716081406540466
+   }
+  }
+ ]
+}

@@ -180,9 +180,25 @@ def _insular_steps(rng, n, depth):
     """Gates whose controls and diagonal targets need no tile bit."""
     steps = []
     for _ in range(depth):
-        kind = int(rng.integers(8))
+        kind = int(rng.integers(10))
         width = 3 if kind in (0, 1, 2, 5) else 2
         targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+        if kind >= 8:
+            # Diagonals with controls and a moving target (CRZ, open-control
+            # and doubly controlled phases): some entries exactly 1.
+            phases = np.exp(1j * rng.normal(size=4))
+            matrix = [
+                np.diag([1, 1, phases[0], phases[1]]),
+                np.diag([phases[0], phases[1], 1, 1]),
+                np.diag([1] * 6 + list(phases[:2])),
+                np.diag([1] * 4 + list(phases)),
+                np.diag([1, phases[0]]),
+                np.diag([phases[0], 1]),
+            ][int(rng.integers(6))].astype(np.complex128)
+            width = matrix.shape[0].bit_length() - 1
+            targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+            steps.append(ApplyMatrixStep(matrix, targets))
+            continue
         if kind == 0:
             matrix = _controlled(_CX)  # Toffoli
         elif kind == 1:
@@ -237,3 +253,31 @@ def test_a_fourier_transform_needs_one_pass_per_tile_of_hadamards():
     tiled = _run(Counted, n, plan, None)
     np.testing.assert_array_equal(tiled, _run(_PerGate, n, plan, None))
     assert len(batches) <= 4
+
+
+def test_tile_forms_and_descriptors_place_controls_and_targets_exactly():
+    from fatqat.simulator._engine.base import _tile_form
+
+    crz = np.diag([1, 1, np.exp(-0.2j), np.exp(0.2j)])
+    form = _tile_form(crz)
+    assert form.diagonal and form.controls == ((0, 1),) and form.active == (1,)
+    np.testing.assert_array_equal(form.matrix, crz.diagonal()[2:])
+    open_control = np.diag([np.exp(-0.2j), np.exp(0.2j), 1, 1])
+    assert _tile_form(open_control).controls == ((0, 0),)
+    assert _tile_form(np.diag([1, 1, 1, -1])).controls == ((0, 1), (1, 1))
+    assert _tile_form(np.diag([np.exp(0.1j), np.exp(0.2j)])).controls == ()
+
+    engine = _Tiled()
+    engine.initialize((2,) * 9)
+    # Tile bits {0, 1, 2, 5, 6, 7}: subsystem 0 sits at tile position 0,
+    # subsystem 8 is outside the tile.
+    position = {bit: i for i, bit in enumerate((0, 1, 2, 5, 6, 7))}
+    ccrz = ApplyMatrixStep(np.diag([1] * 6 + [np.exp(-0.2j), np.exp(0.2j)]), (0, 8, 5))
+    gate = engine._tile_gate(ccrz, position)
+    assert gate.fixed == ((0, 1), (3, 0))  # control at position 0; target at 3
+    assert (gate.rest_mask, gate.rest_value) == (1 << 8, 1 << 8)
+    assert gate.targets == (3,)
+    outside = ApplyMatrixStep(np.diag([np.exp(0.1j), np.exp(0.2j)]), (8,))
+    assert engine._tile_gate(outside, position).targets == (-1 - 8,)
+    toffoli = ApplyMatrixStep(_controlled(_CX), (1, 2, 6))
+    assert engine._tile_gate(toffoli, position).fixed == ((1, 1), (2, 1), (4, 0))
