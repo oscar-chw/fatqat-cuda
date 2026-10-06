@@ -1930,8 +1930,10 @@ class Simulator:
             and context.request.counts
             # Shot batches return counts only; a requested state stays put.
             and not getattr(context.request, self._state_field)
-            and context.shots > 1
-            and _branch_bound(plan, context.system_dims, context.shots) >= context.shots
+            # Only shots that can all branch apart (see _branch_bound).
+            and 1
+            < context.shots
+            <= _branch_bound(plan, context.system_dims, context.shots)
             and not policy.use_compiled_multi_shot_kernel
             # A resident base state lives on the first device only.
             and (
