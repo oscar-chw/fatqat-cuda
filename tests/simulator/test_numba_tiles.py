@@ -296,20 +296,63 @@ def test_numba_operator_engines_refuse_a_measurement_like_numpys(name):
         engine.collapse((0,), np.random.default_rng(0))
 
 
-def test_per_step_caches_stay_bounded_across_many_plans(monkeypatch):
-    # A long-lived engine (a GPU worker, a notebook kernel) sees new plan
-    # steps on every run; its per-step caches must not keep all of them.
-    from fatqat.simulator._engine import base, nb as engine_nb
+def _fill_step_caches(rng):
+    """Run 30 fresh plans on one tiled engine; return its per-step caches."""
+    from fatqat.simulator._engine import nb as engine_nb
 
-    monkeypatch.setattr(base, "_TILE_FORM_CACHE_LIMIT", 50)
-    monkeypatch.setattr(engine_nb, "_STRUCTURE_CACHE_LIMIT", 50)
-    engine = engine_nb.NumbaSVEngine()
-    rng = np.random.default_rng(3)
-    n = 13
+    engine = _Tiled()
+    n = 9
     for _ in range(30):
         engine.initialize((2,) * n)
         for step in _random_steps(rng, n, 20) + _insular_steps(rng, n, 20):
             engine.apply(step)
         np.asarray(engine.state)  # flush the tile queue
-    assert len(engine._tile_forms or {}) <= 50
-    assert len(engine._structure_cache) <= 50
+    # The structure cache holds gates and tile residuals: fill each alone, so
+    # neither kind's limit is met only because the other's cleared the cache.
+    for _ in range(80):
+        engine._resolve_structure(ApplyMatrixStep(_unitary(rng, 2), (0,)))
+    plain = len(engine._structure_cache)
+    for _ in range(80):
+        step = ApplyMatrixStep(_controlled(_unitary(rng, 2)), (0, 1))
+        engine._resolve_residual(step, engine._tile_form_of(step))
+    dm = engine_nb.NumbaDMEngine()
+    dm.initialize((2,))
+    for _ in range(80):
+        dm._resolve_superop(_fresh_channel(rng))
+    sv = engine_nb.NumbaSVEngine()
+    sv.initialize((2,))
+    for _ in range(80):
+        sv.apply_channel(_fresh_channel(rng), rng)
+    residual = [k for k in engine._structure_cache if isinstance(k, tuple)]
+    return {
+        "tile forms": len(engine._tile_forms or {}),
+        "structure": plain,
+        "residual structure": len(residual),
+        "superop": len(dm._superop_cache),
+        "channel routes": len(sv._channel_routes),
+    }
+
+
+def _fresh_channel(rng):
+    from fatqat._backends.steps import ApplyChannelStep
+
+    p = float(rng.uniform(0.01, 0.2))
+    return ApplyChannelStep(
+        (np.sqrt(1 - p) * np.eye(2), np.sqrt(p) * np.array([[0, 1], [1, 0]])), (0,)
+    )
+
+
+def test_per_step_caches_stay_bounded_across_many_plans(monkeypatch):
+    # A long-lived engine (a GPU worker, a notebook kernel) sees new plan
+    # steps on every run; its per-step caches must not keep all of them.
+    from fatqat.simulator._engine import base, nb as engine_nb, np as engine_np
+
+    # Control: unbounded, every cache outgrows the limit the test sets below,
+    # so each bound is actually reached.
+    unbounded = _fill_step_caches(np.random.default_rng(3))
+    assert all(size > 50 for size in unbounded.values()), unbounded
+    monkeypatch.setattr(base, "_TILE_FORM_CACHE_LIMIT", 50)
+    monkeypatch.setattr(engine_nb, "_STRUCTURE_CACHE_LIMIT", 50)
+    monkeypatch.setattr(engine_np, "_CHANNEL_ROUTE_CACHE_LIMIT", 50)
+    bounded = _fill_step_caches(np.random.default_rng(3))
+    assert all(size <= 50 for size in bounded.values()), bounded

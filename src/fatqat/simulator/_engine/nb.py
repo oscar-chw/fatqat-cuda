@@ -136,7 +136,7 @@ from .np import (
 # changes only the active mask, so policy ceilings clamp to this configured
 # capacity rather than to whichever smaller mask the caller currently uses.
 _MAX_THREADS = int(numba_config.NUMBA_NUM_THREADS)
-# As base._TILE_FORM_CACHE_LIMIT, for the per-step structure cache.
+# As base._TILE_FORM_CACHE_LIMIT, for the per-step structure and superop caches.
 _STRUCTURE_CACHE_LIMIT = 4096
 # A coset walk goes parallel only once each worker thread would get at least
 # this many amplitudes of work; below that the parallel-region launch/sync cost
@@ -2763,6 +2763,8 @@ class NumbaDMEngine(NumpyDMEngine):
             code = int(_classify_matrix(superop, columns, values))
         sparse = _superop_csr(superop) if code == _DENSE else None
         resolved = (superop, code, columns, values, sparse)
+        if len(self._superop_cache) >= _STRUCTURE_CACHE_LIMIT:
+            self._superop_cache.clear()
         self._superop_cache[id(step)] = (step, resolved)
         return resolved
 

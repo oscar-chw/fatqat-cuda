@@ -90,6 +90,9 @@ from .._execution_contract import (
 from .base import MatrixEngine, _shot_seed_sequences
 from .branching import _run_branched
 
+# As base._TILE_FORM_CACHE_LIMIT, for the per-step channel-route cache.
+_CHANNEL_ROUTE_CACHE_LIMIT = 4096
+
 # What `_sampled_unitary_branches` resolves a channel step to: branch
 # probabilities, unit-norm operators, identity flags - or None for a channel
 # that must be weighed against the state.
@@ -593,6 +596,8 @@ class NumpySVEngine(_NumpyMatrixEngine):
         if cached is not None and cached[0] is step:
             return cached[1]
         branches = _sampled_unitary_branches(step.kraus_ops)
+        if len(self._channel_routes) >= _CHANNEL_ROUTE_CACHE_LIMIT:
+            self._channel_routes.clear()
         self._channel_routes[id(step)] = (step, branches)
         return branches
 
