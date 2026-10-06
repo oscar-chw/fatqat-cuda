@@ -35,8 +35,10 @@ about 48 bits) would break that rule.
   - Each tile batch is split: the GPU takes 40% of the tiles while Numba runs
     the rest of the same buffer at the same time.
   - Gates that cannot tile run on Numba.
-  - Memory use is unchanged: the one buffer is the state, freed when the last
-    array viewing it is gone.
+  - The one buffer is the state, freed when the last array viewing it is gone.
+    Peak memory while running is within 3 MiB of Numba's
+    ([memory-check.json](../../results/memory-check.json)); loading the Metal
+    runtime adds about 35 MiB once.
 - **The bridge** ([engine.swift](engine.swift)) is a small Swift library loaded
   with `ctypes`.
 

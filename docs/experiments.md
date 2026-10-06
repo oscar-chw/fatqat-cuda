@@ -30,8 +30,14 @@ Shared conventions:
 | Tiles, GPU | The same on one GPU | 26 qubits, 3 repeats, timed to a device sync | 1.06–2.48× over every-target tiles, 1.7–4.1× over per-gate; QFT 47 → 7 passes; all states equal | [tile-check-cuda.json](../results/tile-check-cuda.json) |
 | Precision, r10 | Is every runtime still accurate after the CUDA arithmetic change (Kahan's 2×2-determinant products)? | 110 circuits: 11 families × 10 seeds, statevector, density matrix, unitary and superoperator, qubit and mixed radix, up to 5 subsystems; 60-digit oracle of the stored coefficients | every runtime ≤ 2.9 eps; Numba minus GPU +0.047 eps (SE 0.033) | [precision-r10.json](../results/precision-r10.json) |
 | Differential check | Do the "same result" claims hold on circuits the tests never saw? | 9,500 random circuits from seed 1,000,000. Covers:<br>- tiles vs per-gate (3,000, 7–12 qubits);<br>- exact simplifications (3,000, qubit and mixed radix);<br>- known-input specialisation (2,000);<br>- Clifford+T simplification to 1e-12 (1,200);<br>- Metal prototype vs Numba tiles, by bit pattern (300). | 0 failures | [differential-check.json](../results/differential-check.json) |
+| Memory | Does any r10 change use more host memory? | 24 qubits (a 256 MiB state), each tile-check workload, one fresh process per arm: per-gate, every-target tiles, insular tiles, insular tiles with `simplify`, the Metal prototype; peak resident memory added while evolving the plan | 287–290 MiB for every arm; no change beyond 3 MiB. Loading the Metal runtime adds about 35 MiB once, measured separately | [memory-check.json](../results/memory-check.json) |
 | Software binary64 (Apple GPU) | Can an Apple GPU do exact IEEE double arithmetic in software? | 4M multiplies and 4M adds: random operands of every class, plus pairs at the subnormal boundary, the overflow edge, ties after alignment shifts, and subnormal cancellation; a one-qubit gate on 2²⁰ amplitudes against the CPU loop | 0 mismatches on non-NaN results; gate bit-identical | [metal-fp64-check.json](../results/metal-fp64-check.json) |
 | Metal prototype | Does sharing each tile batch between the Apple GPU and the CPU beat the CPU alone? | 24 and 26 qubits; GPU share 0.4 of each batch's tiles (11-bit tiles); 3 repeats; the tile-check workloads; baseline Numba with its 12-bit tiles | 1.24–1.48×; every state bit-identical to Numba's tiles | [metal-prototype.json](../results/metal-prototype.json) |
+
+GPU memory was recorded for r9 (pool and host memory equal between r8 and r9,
+[ab-r8-r9.json](../results/ab-r8-r9.json)); r10's CUDA tiles add no global
+allocations beyond the small per-batch descriptors, but their GPU pool was not
+re-measured.
 
 The CPU tile and simplification files were measured at their own revisions.
 At those revisions, timed calls also exported the state; the scripts now time
