@@ -225,7 +225,7 @@ Products are computed exactly, not in floating point, for unit gates
 (entries `0`, `±1`, `±i`: Paulis, `S`, `CX`, `SWAP`), the built-in `H`, `T`,
 `Tdg` and `SX`, and rotations conjugated by `±1` permutations. A run is
 replaced only by a product that rounds no more, so the result is closer to
-the ideal circuit on average (a circuit can end up to 0.06 eps worse): rewrites
+the ideal circuit on average (no per-circuit bound: a circuit can end up slightly worse): rewrites
 of exact gates leave Numba and CUDA values unchanged, and cancelled `H` or `T`
 gates no longer add their rounding.
 Two rotations are never merged with each other. From the all-zero start,

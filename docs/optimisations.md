@@ -95,7 +95,8 @@ gates and scaled permutations leave every value unchanged on the Numba and
 CUDA runtimes; the others change values only by removing rounding, so against
 the ideal circuit the result is closer on average (mean 0.78 against 2.92 eps
 on 48 circuits), though removing one rounding can leave another's error
-unbalanced: 6 of 48 circuits ended up to 0.061 eps worse. FatQat's built-in `H`
+unbalanced: 6 of 48 circuits ended up to 0.061 eps worse, and no per-circuit
+bound is claimed. FatQat's built-in `H`
 and `T` store `1/√2` as `0.7071067811865475`, one unit in the last place
 below the correctly rounded value, so an exact `Z` in place of `H·X·H` is
 measurably closer to the ideal circuit.

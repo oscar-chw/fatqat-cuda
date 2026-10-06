@@ -26,9 +26,11 @@ rounding and fewer passes over the state. The rounding cost of a gate is ``0``
 for a unit gate, which only moves and negates amplitudes, and otherwise the
 largest number of nonzero entries in a row, the number of products summed
 into each amplitude. The replacement is the exact product rounded once, so
-compared with the *ideal* circuit (exact gate definitions) the result is at
-least as accurate: ``H X H`` becomes an exact ``Z`` instead of two rounded
-``H`` applications. Rewrites among unit gates alone leave every value
+compared with the *ideal* circuit (exact gate definitions) the result is
+closer on average: ``H X H`` becomes an exact ``Z`` instead of two rounded
+``H`` applications. This is not a per-circuit bound: removing one rounding can
+leave another's error uncancelled, so a single circuit can end up a fraction
+of an epsilon further from the ideal one. Rewrites among unit gates alone leave every value
 unchanged on the Numba and CUDA runtimes.
 
 Two blocks merge when they are adjacent on their subsystems, or when the later
