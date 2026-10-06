@@ -467,8 +467,217 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
     _supports_shot_workers = False
     _supports_resident_expectation = True
 
+    # Gate blocking. Each one- or two-qubit gate is otherwise one full pass
+    # over the state in global memory, and those passes dominate large runs.
+    # Consecutive qubit gates whose targets fit in one tile of _TILE_BITS
+    # qubits are queued and applied together: each CUDA block loads one tile
+    # into shared memory, applies the queued gates in order with the same
+    # per-gate arithmetic as _small_qubit_apply, and writes the tile back once.
+    # The tile always includes the _COALESCED_BITS lowest qubits so global
+    # loads stay contiguous. 2**11 complex128 values is 32 KiB of shared
+    # memory, within the default per-block limit.
+    #
+    # Tiling engages only for states larger than the device's L2 cache
+    # (_TILE_MIN_BYTES=None). Below that, per-gate passes are served from L2
+    # and were measured as fast or faster than tiles (20-22 qubits on a
+    # 128 MiB-L2 device: 0.88-1.01x), while 24-26 qubits gained 2.2-2.4x.
+    _TILE_BITS = 11
+    _COALESCED_BITS = 5
+    _TILE_MIN_BYTES = None
+
     def __init__(self, device_id: int = 0):
         super().__init__("cupy-sv", device_id=device_id)
+        self._pending = []
+        self._pending_bits = frozenset()
+
+    @property
+    def state(self):
+        # Every read of the state, including export and expectation values,
+        # first applies any queued gates.
+        self._flush_pending()
+        return super().state
+
+    @state.setter
+    def state(self, value):
+        self._flush_pending()
+        self._state = value
+
+    def initialize(self, *args, **kwargs):
+        self._pending = []
+        self._pending_bits = frozenset()
+        super().initialize(*args, **kwargs)
+
+    @contextmanager
+    def _execution_scope(self, policy):
+        with super()._execution_scope(policy):
+            yield
+            # Finish queued gates before the scope synchronizes and clears the
+            # matrix cache, even when the run requested no output.
+            self._flush_pending()
+
+    def apply(self, step):
+        targets = step.target_indices
+        n = len(self._dims)
+        if (
+            n < self._TILE_BITS
+            or (1 << n) * 16 <= self._tile_min_bytes
+            or not self._uses_qubit_kernel(targets)
+        ):
+            self._flush_pending()
+            super().apply(step)
+            return
+        low = frozenset(range(self._COALESCED_BITS))
+        bits = self._pending_bits | frozenset(targets)
+        if len(bits | low) > self._TILE_BITS:
+            self._flush_pending()
+            bits = frozenset(targets)
+        self._pending.append(step)
+        self._pending_bits = bits
+
+    @cached_property
+    def _tile_min_bytes(self):
+        if self._TILE_MIN_BYTES is not None:
+            return self._TILE_MIN_BYTES
+        return self._cp.cuda.Device(self.device_id).attributes["L2CacheSize"]
+
+    def _flush_pending(self):
+        pending = self._pending
+        if not pending:
+            return
+        self._pending, self._pending_bits = [], frozenset()
+        if len(pending) == 1:
+            super().apply(pending[0])
+        else:
+            self._apply_tile_batch(pending)
+
+    def _apply_tile_batch(self, steps):
+        """Apply queued qubit gates tile by tile in shared memory."""
+        cp = self._cp
+        n = len(self._dims)
+        tile = set(range(self._COALESCED_BITS))
+        for step in steps:
+            tile.update(step.target_indices)
+        for q in range(n):
+            if len(tile) == self._TILE_BITS:
+                break
+            tile.add(q)
+        tile = sorted(tile)
+        rest = [q for q in range(n) if q not in tile]
+        position = {q: i for i, q in enumerate(tile)}
+        descriptors, matrices, offset = [], [], 0
+        for step in steps:
+            _device, (diagonal, permutation, fixed) = self._qubit_matrix(step.matrix)
+            kind = 0 if diagonal else 1 if permutation >= 0 else 2
+            targets = step.target_indices
+            descriptors += [
+                kind,
+                len(targets),
+                position[targets[0]],
+                position[targets[-1]],
+                offset,
+                permutation,
+                fixed,
+            ]
+            matrices.append(np.asarray(step.matrix, dtype=np.complex128).ravel())
+            offset += matrices[-1].size
+        key = ("tile", self._TILE_BITS)
+        if key not in self._kernels:
+            source = r"""
+            __device__ unsigned long long tile_index(
+                unsigned long long base, int j, const int* tile_bits) {
+                for (int b = 0; b < TILE_BITS; ++b)
+                    if ((j >> b) & 1) base |= 1ULL << tile_bits[b];
+                return base;
+            }
+            extern "C" __global__ void gate_tile(
+                double2* state, const double2* matrices, const int* gates,
+                int n_gates, const int* tile_bits, const int* rest_bits, int n_rest) {
+                extern __shared__ double2 tile[];
+                const int size = 1 << TILE_BITS;
+                unsigned long long base = 0;
+                for (int r = 0; r < n_rest; ++r)
+                    if ((blockIdx.x >> r) & 1ULL) base |= 1ULL << rest_bits[r];
+                for (int j = threadIdx.x; j < size; j += blockDim.x)
+                    tile[j] = state[tile_index(base, j, tile_bits)];
+                __syncthreads();
+                for (int g = 0; g < n_gates; ++g) {
+                    const int* d = gates + 7 * g;
+                    const int kind = d[0], width = d[1], first = d[2], second = d[3];
+                    const int permutation = d[5], fixed = d[6], dim = 1 << width;
+                    const double2* matrix = matrices + d[4];
+                    if (kind == 0) {
+                        for (int i = threadIdx.x; i < size; i += blockDim.x) {
+                            int row = (i >> first) & 1;
+                            if (width == 2) row = 2 * row + ((i >> second) & 1);
+                            double2 a = tile[i], m = matrix[row * dim + row];
+                            tile[i] = make_double2(m.x*a.x - m.y*a.y, m.x*a.y + m.y*a.x);
+                        }
+                    } else {
+                        int lo = first, hi = second;
+                        if (width == 2 && lo > hi) { int tmp = lo; lo = hi; hi = tmp; }
+                        for (int gi = threadIdx.x; gi < (size >> width); gi += blockDim.x) {
+                            int mask = (1 << lo) - 1;
+                            int local = (gi & mask) | ((gi >> lo) << (lo + 1));
+                            if (width == 2) {
+                                mask = (1 << hi) - 1;
+                                local = (local & mask) | ((local >> hi) << (hi + 1));
+                            }
+                            double2 values[4];
+                            int indices[4];
+                            for (int r = 0; r < dim; ++r) {
+                                int offset = width == 1 ? (r << first)
+                                    : (((r >> 1) << first) | ((r & 1) << second));
+                                indices[r] = local | offset;
+                                if (kind != 1 || !(fixed & (1 << r))) values[r] = tile[indices[r]];
+                            }
+                            for (int r = 0; r < dim; ++r) {
+                                if (kind == 1) {
+                                    if (fixed & (1 << r)) continue;
+                                    int c = (permutation >> (2 * r)) & 3;
+                                    double2 m = matrix[r * dim + c], a = values[c];
+                                    tile[indices[r]] = make_double2(m.x*a.x-m.y*a.y, m.x*a.y+m.y*a.x);
+                                    continue;
+                                }
+                                double real = 0, imag = 0;
+                                for (int c = 0; c < dim; ++c) {
+                                    double2 m = matrix[r * dim + c], a = values[c];
+                                    real += m.x*a.x - m.y*a.y;
+                                    imag += m.x*a.y + m.y*a.x;
+                                }
+                                tile[indices[r]] = make_double2(real, imag);
+                            }
+                        }
+                    }
+                    __syncthreads();
+                }
+                for (int j = threadIdx.x; j < size; j += blockDim.x)
+                    state[tile_index(base, j, tile_bits)] = tile[j];
+            }
+            """
+            source = source.replace("TILE_BITS", str(self._TILE_BITS))
+            # No fast-math or reduced-precision mode; ordinary binary64 ops.
+            kernel = cp.RawKernel(source, "gate_tile")
+            shared = (1 << self._TILE_BITS) * 16
+            if shared > 48 * 1024:
+                # Above 48 KiB a block must opt in to more shared memory.
+                kernel.max_dynamic_shared_size_bytes = shared
+            self._kernels[key] = kernel
+        state = cp.ascontiguousarray(self._state)
+        self._kernels[key](
+            (1 << len(rest),),
+            (256,),
+            (
+                state,
+                cp.asarray(np.concatenate(matrices)),
+                cp.asarray(np.array(descriptors, dtype=np.int32)),
+                np.int32(len(steps)),
+                cp.asarray(np.array(tile, dtype=np.int32)),
+                cp.asarray(np.array(rest, dtype=np.int32)),
+                np.int32(len(rest)),
+            ),
+            shared_mem=(1 << self._TILE_BITS) * 16,
+        )
+        self._state = state
 
     def materialize_execution(self, plan, **kwargs):
         if any(
