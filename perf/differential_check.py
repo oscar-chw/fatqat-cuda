@@ -3,7 +3,8 @@
 Thousands of random circuits, with seeds far from the test suite's, compare:
 tiles against per-gate kernels (Numba), exact simplifications against the
 plain plan (values unchanged, Numba), simplification from the all-zero start,
-Clifford+T simplification (equivalent to 1e-12), where the prototype is
+Clifford+T simplification (equivalent to 1e-12), the value checks again on
+CUDA where a GPU is present, where the prototype is
 built, the Apple-GPU engine against Numba's tiles (bit patterns), and shot
 branching against the one-shot-at-a-time loop (every shot's classical bits, on
 every engine available). It reuses the generators of the tile and simplify
@@ -51,6 +52,27 @@ def count(n):
 results = {}
 
 
+def _value_engines():
+    # Simplification claims unchanged values on Numba and CUDA; CUDA kernels
+    # differ from Numba's (a specialised gate can switch kernel), so it is
+    # checked on its own engine, not inferred from Numba.
+    engines = {"Numba": NumbaSVEngine}
+    try:
+        import cupy  # pylint: disable=import-outside-toplevel
+
+        if cupy.cuda.runtime.getDeviceCount() > 0:
+            # pylint: disable-next=import-outside-toplevel
+            from fatqat.simulator._engine.cupy import CupySVEngine
+
+            engines["CUDA"] = CupySVEngine
+    except Exception:  # pylint: disable=broad-except  # no CuPy or no device
+        pass
+    return engines
+
+
+VALUE_ENGINES = _value_engines()
+
+
 def mixed_steps(rng, n, depth):
     half = depth // 2
     steps = T._random_steps(rng, n, half) + T._insular_steps(rng, n, depth - half)
@@ -80,52 +102,53 @@ results["numba tiles vs per-gate (random + controlled/diagonal gates)"] = (
 )
 print(results, flush=True)
 
-# 2. simplify on exact-only plans: values unchanged (Numba), mixed radix too; never longer.
-start = time.time()
-fails = 0
-cases = 0
-for seed in range(count(3000)):
-    rng = np.random.default_rng(BASE + 10_000 + seed)
-    dims = [(2, 2, 2, 2), (3, 2, 3), (2, 2, 2, 2, 2), (2, 3, 2, 2)][seed % 4]
-    size = int(np.prod(dims))
-    ket = rng.normal(size=size) + 1j * rng.normal(size=size)
-    ket /= np.linalg.norm(ket)
-    plan = S._random_plan(rng, dims, 40, noisy=False)
-    short = simplify_plan(plan, dims)
-    if len(short) > len(plan):
-        fails += 1
-    a = S._evolve(S.numba_engines[0](), dims, short, ket)
-    b = S._evolve(S.numba_engines[0](), dims, plan, ket)
-    if not np.array_equal(a, b):
-        fails += 1
-    cases += 1
-results["simplify exact-only plans, Numba values unchanged"] = (
-    cases,
-    fails,
-    time.time() - start,
-)
-print(results, flush=True)
+# 2. simplify on exact-only plans: values unchanged, mixed radix too; never longer.
+for label, engine in VALUE_ENGINES.items():
+    start = time.time()
+    fails = 0
+    cases = 0
+    for seed in range(count(3000)):
+        rng = np.random.default_rng(BASE + 10_000 + seed)
+        dims = [(2, 2, 2, 2), (3, 2, 3), (2, 2, 2, 2, 2), (2, 3, 2, 2)][seed % 4]
+        size = int(np.prod(dims))
+        ket = rng.normal(size=size) + 1j * rng.normal(size=size)
+        ket /= np.linalg.norm(ket)
+        plan = S._random_plan(rng, dims, 40, noisy=False)
+        short = simplify_plan(plan, dims)
+        if len(short) > len(plan):
+            fails += 1
+        a = S._evolve(engine(), dims, short, ket)
+        b = S._evolve(engine(), dims, plan, ket)
+        if not np.array_equal(a, b):
+            fails += 1
+        cases += 1
+    results[f"simplify exact-only plans, {label} values unchanged"] = (
+        cases,
+        fails,
+        time.time() - start,
+    )
+    print(results, flush=True)
 
 # 3. simplify with known inputs (zero start), exact-only and rotations: values unchanged.
-start = time.time()
-fails = 0
-cases = 0
-for seed in range(count(2000)):
-    rng = np.random.default_rng(BASE + 20_000 + seed)
-    dims = (2, 2, 2, 2, 2)
-    plan = S._random_plan(rng, dims, 40, noisy=False)
-    short = simplify_plan(plan, dims, zero_start=True)
-    a = S._evolve(S.numba_engines[0](), dims, short, None)
-    b = S._evolve(S.numba_engines[0](), dims, plan, None)
-    if not np.array_equal(a, b):
-        fails += 1
-    cases += 1
-results["simplify from the zero start (known inputs), values unchanged"] = (
-    cases,
-    fails,
-    time.time() - start,
-)
-print(results, flush=True)
+for label, engine in VALUE_ENGINES.items():
+    start = time.time()
+    fails = 0
+    cases = 0
+    for seed in range(count(2000)):
+        rng = np.random.default_rng(BASE + 20_000 + seed)
+        dims = (2, 2, 2, 2, 2)
+        plan = S._random_plan(rng, dims, 40, noisy=False)
+        short = simplify_plan(plan, dims, zero_start=True)
+        a = S._evolve(engine(), dims, short, None)
+        b = S._evolve(engine(), dims, plan, None)
+        if not np.array_equal(a, b):
+            fails += 1
+        cases += 1
+    suffix = "" if label == "Numba" else f" ({label})"
+    results[
+        f"simplify from the zero start (known inputs), values unchanged{suffix}"
+    ] = (cases, fails, time.time() - start)
+    print(results, flush=True)
 
 # 4. simplify on Clifford+T circuits (rounding removed): equivalent within 1e-12, statevector and unitary.
 start = time.time()

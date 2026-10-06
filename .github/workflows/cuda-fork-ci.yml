@@ -37,3 +37,8 @@ jobs:
 
       - name: Run tests (CUDA tests self-skip without CuPy)
         run: python -m pytest -q -p no:cacheprovider tests
+
+      # A small slice of the randomized differential check (fresh seeds, every
+      # "same result" claim); the full run is in results/differential-check.json.
+      - name: Differential check, 5% scale
+        run: python perf/differential_check.py --scale 0.05
