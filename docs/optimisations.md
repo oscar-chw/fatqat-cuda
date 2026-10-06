@@ -2,14 +2,14 @@
 
 r9 adds three things on top of the r8 CUDA engine, r10 refines two of them,
 and r11 makes runs of many shots share their work and use several GPUs. Each
-was kept only if it met three rules: it helps CPU-only users as
-well as GPU users, it is at least as accurate as the code it replaces, and it
-uses no more memory.
+was kept only if it is as accurate as the code it replaces, or more (on
+average, for `simplify`; see below), and its memory cost is stated. The table
+says which runtimes each change helps: several are GPU-only.
 
 | Change | Runtimes | Accuracy | Memory |
 | --- | --- | --- | --- |
 | Gate tiles (r9); controls and diagonal gates take no tile bit (r10) | CUDA statevectors and unitaries (shared memory), Numba statevectors (CPU cache) | equal to the per-gate kernels | unchanged; tiles live in on-chip memory |
-| `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding; closer to the ideal circuit where rounding gates cancel | unchanged; a planning step on the host |
+| `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding operations; closer to the ideal circuit on average (a circuit can end up to 0.06 eps worse) | unchanged; a planning step on the host |
 | `device_id=(0, 1, ...)` or `"all"` for `run_sweep` and shot runs; one worker process per further GPU (r11) | CUDA | bit-identical to a one-GPU run | one copy of the state per GPU used |
 | Exact shot branching (r11) | every runtime, statevector and density-matrix runs of many shots | every shot's classical bits bit-identical to running it alone | pending states held to 1 GiB, or 8 states within half the free memory, then shot by shot |
 
@@ -19,8 +19,8 @@ Every one- or two-qubit gate used to be one full pass over the state. A run
 of consecutive qubit gates whose targets fit in one tile is now applied tile
 by tile: each tile is read once, all the gates of the run are applied to it
 in order, and it is written back once. The per-amplitude arithmetic is the
-per-gate kernels' own, so results are bit-identical; tests compare them with
-exact array equality.
+per-gate kernels' own, so results are equal in value; tests compare them
+with exact array equality (which counts +0 and -0 as equal).
 
 ```mermaid
 flowchart TB
@@ -62,7 +62,7 @@ the "insular qubits" of the Atlas simulator ([arXiv:2408.09055](https://arxiv.or
 ## Simplification
 
 `simulation_config={"simplify": True}` simplifies the circuit before
-execution, in the style of a course on circuit synthesis: gates are tensors,
+execution, using textbook circuit identities: gates are tensors,
 so neighbouring gates can be multiplied out, identities removed, and gates
 commuted past each other to meet their inverses.
 
@@ -93,7 +93,9 @@ or moved past one that rounds, only when the merge removes rounding, because
 floating point neither distributes nor reassociates. Rewrites among unit
 gates and scaled permutations leave every value unchanged on the Numba and
 CUDA runtimes; the others change values only by removing rounding, so against
-the ideal circuit the result is at least as accurate. FatQat's built-in `H`
+the ideal circuit the result is closer on average (mean 0.78 against 2.92 eps
+on 48 circuits), though removing one rounding can leave another's error
+unbalanced: 6 of 48 circuits ended up to 0.061 eps worse. FatQat's built-in `H`
 and `T` store `1/√2` as `0.7071067811865475`, one unit in the last place
 below the correctly rounded value, so an exact `Z` in place of `H·X·H` is
 measurably closer to the ideal circuit.
@@ -176,7 +178,8 @@ shot by shot at once. At the plan's last step no state is built at all, and
 shots run in chunks of 4,096.
 
 Two early versions were measured and fixed. The first built every
-measurement outcome's state at once, which held 65 GB at 24 qubits on a GPU.
+measurement outcome's state at once, which at 24 qubits held about 250 copies
+of the state on a GPU.
 The second let the first shot's part go on in place: when that shot drew a
 rare noise branch, the large no-error group waited, overflowed the budget and
 ran shot by shot (396 of 400 shots in a test, and two GPUs at 0.46× of one at
@@ -199,8 +202,8 @@ All from 2026-10-06; every figure links its evidence file.
   memory pool and host memory were equal in every pair.
 - **Unitary tiles** ([ab-unitary-tiles.json](../results/ab-unitary-tiles.json)):
   1.29× (12 qubits), 1.28× (13) and 1.42× (14) in the same run on one GPU,
-  equal memory; 0.97× at 11 qubits, where the state fits in L2 and tiles do
-  not engage (noise). The CPU unitary engine is unchanged: splitting its
+  equal memory; 0.97× at 11 qubits, where the state is small enough that
+  tiles do not engage (noise). The CPU unitary engine is unchanged: splitting its
   column blocks finer to fit the cache was measured 0.38–0.91× and dropped.
 - **CPU tiles** ([cpu-tiles.json](../results/cpu-tiles.json)): gate-core
   speed-up of the default 12-qubit tile over per-gate passes, measured in
@@ -212,7 +215,7 @@ All from 2026-10-06; every figure links its evidence file.
   values.
 - **r10 simplification, CPU** ([simplify-check.json](../results/simplify-check.json)):
   against the ideal circuit, 48 seeded circuits (Clifford+T with and without
-  lecture-style redundancy, a Clifford+T adder, QAOA; 6 qubits): mean error
+  textbook redundancy, a Clifford+T adder, QAOA; 6 qubits): mean error
   0.78 eps with `simplify` against 2.92 eps without on NumPy, 0.77 against 2.89
   on Numba; paired difference −2.1 eps, standard error 0.36. At 20 qubits:
   Clifford+T adder 3.03× (NumPy) and 2.01× (Numba), redundant Clifford+T
@@ -234,8 +237,9 @@ All from 2026-10-06; every figure links its evidence file.
 - **r10 simplification, GPU** ([simplify-check-cuda.json](../results/simplify-check-cuda.json)):
   error against the ideal circuit 0.81 eps with `simplify` against 3.08
   without; at 26 qubits, exact expectation values, redundant Clifford+T
-  2.75×, QAOA 1.30×, adder 1.02×, QFT 0.97×. At 20 qubits planning costs
-  more than a GPU saves, so on the GPU `simplify` is for large states.
+  2.75×, QAOA 1.30×, adder 1.02×, QFT 0.97×. At 20 qubits planning cost
+  more than a GPU saved (an unpublished measurement), so on the GPU
+  `simplify` is for large states.
 - **r10 accuracy** ([precision-r10.json](../results/precision-r10.json)):
   the 110 circuits of `precision.json` again, every runtime ≤ 2.9 eps; Numba
   minus GPU +0.047 eps (standard error 0.033). The GPU's complex products

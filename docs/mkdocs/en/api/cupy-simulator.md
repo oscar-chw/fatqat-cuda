@@ -1,7 +1,7 @@
 # CUDA runtime
 
 `Simulator(runtime="cuda")` runs statevector, density-matrix, unitary and
-superoperator calculations on one NVIDIA GPU. It retains `complex128` values
+superoperator calculations on NVIDIA GPUs, one state per GPU. It retains `complex128` values
 and returns ordinary NumPy arrays and FatQat results. It performs no state
 truncation, reduced-precision calculation, or change to the circuit model.
 Floating-point results can differ from CPU results; bitwise reproducibility
@@ -51,8 +51,8 @@ The method names and aliases are the same as for CPU execution:
 
 | Method | CUDA coverage | Restrictions |
 | --- | --- | --- |
-| `statevector` / `SV` | Ideal evolution and seeded counts; per-shot trajectories with finite channels, reset, intermediate measurement and feedforward | Dynamic circuits execute shots serially, each from its own seed stream, as NumPy does |
-| `density_matrix` / `DM` | Exact finite channels and reset; terminal or intermediate measurement, seeded counts and feedforward | Dynamic circuits execute shots serially |
+| `statevector` / `SV` | Ideal evolution and seeded counts; per-shot trajectories with finite channels, reset, intermediate measurement and feedforward | Each shot of a dynamic circuit draws from its own seed stream, as NumPy does; shots that share a state share the work (shot branching), and several GPUs split the shots |
+| `density_matrix` / `DM` | Exact finite channels and reset; terminal or intermediate measurement, seeded counts and feedforward | Dynamic circuits run per shot, with shot branching |
 | `unitary` | The complete unitary map | Rejects channels, reset, measurement, conditions, counts and `initial_state` |
 | `superop` | The complete channel map, including finite channels and reset | Rejects measurement, conditions, counts and `initial_state` |
 
@@ -118,7 +118,8 @@ Shots of one run that share a state share the work on it (shot branching):
 deterministic steps run once per group of shots, and each branch a random step
 picks is built once, while every shot still makes its own draws, in its own
 order. Counts are bit-identical to running the shots one at a time, on every
-runtime.
+runtime's per-shot loop (Numba's compiled multi-shot loop, which default
+counts-only Numba runs use, is separate and unchanged).
 
 FatQat logs nothing unless the application configures logging. To see which
 devices `"all"` found, how a run's shots were spread, and a summary of each
@@ -162,8 +163,8 @@ complex128 array requires:
 
 Contractions, channel application, sampling, collapse, host exports and
 retained sweep results require additional memory. A historical statevector
-pilot exported a 32-qubit GHZ state using only in-place one- and two-qubit
-kernels. That capacity check does not establish capacity for the current
+pilot exported a GHZ state of several times the usual test size using only
+in-place one- and two-qubit kernels. That capacity check does not establish capacity for the current
 matrix methods, arbitrary circuits or their temporary buffers.
 
 Small circuits may run faster on the CPU because GPU setup and launch costs

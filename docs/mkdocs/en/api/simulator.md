@@ -85,8 +85,9 @@ results.
 `Simulator(method="SV", runtime="cuda", device_id=0)` selects the built-in
 NVIDIA GPU engine. It supports all four methods with complex128 values and
 ordinary FatQat results. Statevectors and density matrices also support
-finite channels, reset, intermediate measurement and feedforward, with dynamic
-shots executed serially. Unitary and superoperator execution follow the method restrictions
+finite channels, reset, intermediate measurement and feedforward, run per shot
+with shot branching, and over several GPUs with `device_id` (a tuple, or
+`"all"`). Unitary and superoperator execution follow the method restrictions
 above. Parameter sweeps and state observables are supported within these
 limits; readout confusion remains a classical reporting operation.
 
@@ -113,7 +114,7 @@ values are case-sensitive.
 | `kernel_parallelism` | `"auto"` | `"auto"`, `"serial"`, or `"threads"`. Threads require Numba and cannot be requested together with parallel shots. |
 | `max_workers` | `None` | `None` or a positive `int`. It caps the selected parallel mode; `1` conflicts with an explicitly parallel request. |
 | `fusion` | `False` | A `bool`. `True` combines compatible adjacent operations and is supported by Numba for `density_matrix`, `unitary`, and `superop`. |
-| `simplify` | `False` | A `bool`. `True` simplifies the circuit with exact gate algebra: products of unit gates (entries `0`, `±1`, `±i`), of the built-in `H`, `T`, `Tdg` and `SX`, and of rotations with `±1` permutations are computed exactly (`X` then `X` is removed; `H X H` becomes `Z`; `CX RZ CX` becomes one diagonal). A run is replaced only by a product that rounds no more, so results are at least as close to the ideal circuit; rewrites of exact gates leave Numba and CUDA values unchanged, NumPy's may differ in the last bit. From the all-zero start, gates that act as the identity on known basis inputs are dropped. Measurements, resets and channels are never crossed. Supported by every runtime and method. Not supported by `run_sweep`. |
+| `simplify` | `False` | A `bool`. `True` simplifies the circuit with exact gate algebra: products of unit gates (entries `0`, `±1`, `±i`), of the built-in `H`, `T`, `Tdg` and `SX`, and of rotations with `±1` permutations are computed exactly (`X` then `X` is removed; `H X H` becomes `Z`; `CX RZ CX` becomes one diagonal). A run is replaced only by a product that rounds no more, so results are closer to the ideal circuit on average (a circuit can end up to 0.06 eps worse); rewrites of exact gates leave Numba and CUDA values unchanged, NumPy's may differ in the last bit. From the all-zero start, gates that act as the identity on known basis inputs are dropped. Measurements, resets and channels are never crossed. Supported by every runtime and method. Not supported by `run_sweep`. |
 
 Automatic selection uses at most one parallel axis. An explicit unsupported
 choice raises an error instead of falling back. A run is eligible for explicit

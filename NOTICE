@@ -1,17 +1,36 @@
 FatQat CUDA backend
 
 This product is a fork of FatQat (https://github.com/spaceqat/fatqat),
-developed by the FatQat authors and licensed under the Apache License,
+developed by the FatQat contributors and licensed under the Apache License,
 Version 2.0. The FatQat source, documentation and tests are their work.
 
 This fork adds a CUDA engine for the FatQat simulator (statevector,
 density-matrix, unitary and superoperator execution on NVIDIA GPUs through
-CuPy), cache and shared-memory gate tiles for the Numba and CUDA engines,
-exact circuit simplification, multi-GPU parameter sweeps, an Apple-GPU
-(Metal) prototype, and their tests, benchmarks and documentation.
+CuPy, including per-shot trajectories), cache and shared-memory gate tiles
+for the Numba and CUDA engines, exact circuit simplification, exact shot
+branching, several GPUs for parameter sweeps and for a run's shots, an
+Apple-GPU (Metal) prototype, and their tests, benchmarks and documentation.
 Those additions and modifications are Copyright 2026 CHOI Hei Wang (Oscar)
 and are licensed under the Apache License, Version 2.0. They were developed
 by a student at The Chinese University of Hong Kong, inspired by the course
 CENG5280.
+
+Files of the original FatQat that this fork modifies (the fork's history
+records each change):
+
+  .gitignore, README.md (replaced; the original is docs/upstream-README.md),
+  mkdocs.yml, pyproject.toml,
+  docs/mkdocs/en/api/simulator.md, docs/mkdocs/en/guide/performance.md,
+  src/fatqat/__init__.py, src/fatqat/_backends/engine_contract.py,
+  src/fatqat/noise/nb.py, src/fatqat/qiskit/backend.py,
+  src/fatqat/simulator/_engine/base.py, src/fatqat/simulator/_engine/nb.py,
+  src/fatqat/simulator/_engine/np.py, src/fatqat/simulator/_engine/parallel.py,
+  src/fatqat/simulator/_execution_contract.py,
+  src/fatqat/simulator/_execution_policy.py,
+  src/fatqat/simulator/fake_atom_array.py,
+  src/fatqat/simulator/fake_superconducting.py,
+  src/fatqat/simulator/simulator.py,
+  tests/simulator/test_configuration_api.py, tests/simulator/test_options.py,
+  tests/simulator/test_runtime_selection.py
 
 See LICENSE for the full license text.

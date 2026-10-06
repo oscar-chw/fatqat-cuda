@@ -19,7 +19,7 @@ the pages below are the plain Markdown pages in this folder.
 | [benchmarks.md](benchmarks.md) | How much faster is the CUDA engine, against which CPU baselines and engine revisions, and how precise is it? |
 | [../results/README.md](../results/README.md) | What each results file holds, how it was produced, and how to rerun it. |
 
-## Upstream FatQat (by the FatQat authors)
+## Upstream FatQat (by the FatQat contributors)
 
 | Page | What it answers |
 | --- | --- |

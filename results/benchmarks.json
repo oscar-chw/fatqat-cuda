@@ -5,7 +5,7 @@
   "engine_revisions": {
     "v5": "earlier CUDA engine revision; same CPU numerical code",
     "r7": "CUDA engine revision before r8; same CPU code as r8",
-    "r8": "the committed code in this repository"
+    "r8": "the engine of 2026-09-15, before r9"
   },
   "workload_common": {
     "circuit": "two layers of parameterised RY and RZ on every qubit plus staggered nearest-neighbour CX",
@@ -747,7 +747,7 @@
       "source_document": "CUDA_IMPLEMENTATION_RESULTS.md"
     }
   ],
-  "not_measured": "r8 has not been timed against the CPU engines; no GPU-vs-CPU ratio here describes r8",
+  "not_measured": "at the time of this record r8 had not been timed against the CPU engines, so no GPU-vs-CPU ratio here describes r8; scaling.json later did",
   "experiments_not_in_this_code": {
     "note": "Unpromoted experiments measured against r8. Not part of this repository; no claim is made for them.",
     "rows": [

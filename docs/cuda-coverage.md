@@ -20,7 +20,7 @@ flowchart LR
     MULTI["one state split<br/>across several GPUs"]:::ext
   end
   R ==>|"single_pass and per_shot shapes"| SV
-  R ==>|"dynamic shots run serially"| DM
+  R ==>|"per-shot runs with shot branching"| DM
   R ==>|"operator shape"| OP
   R ==>|"state stays resident"| EST
   R ==>|"device_id forwarded"| SC

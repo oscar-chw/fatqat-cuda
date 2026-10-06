@@ -128,9 +128,9 @@ density-matrix, unitary and superoperator calculations with complex128
 precision. The CPU retains circuit preparation, validation, classical control
 and result construction; the evolving state or operator remains on the GPU.
 Use `Simulator("SV", runtime="cuda", device_id=0)` on an NVIDIA host, selecting
-another method when needed. Statevectors require ideal single-pass circuits;
-density matrices support channels, reset and dynamic measurements with serial
-shots. Operator methods retain their usual restrictions. CUDA does not
+another method when needed. Statevectors and density matrices support
+channels, reset and dynamic measurements, run per shot with shot branching;
+`device_id="all"` spreads a run's shots over every visible GPU. Operator methods retain their usual restrictions. CUDA does not
 accelerate atom occupancy or pulse emulation.
 
 Compare the same requested output and include host transfers in timing.
@@ -224,9 +224,10 @@ fewer times.
 Products are computed exactly, not in floating point, for unit gates
 (entries `0`, `±1`, `±i`: Paulis, `S`, `CX`, `SWAP`), the built-in `H`, `T`,
 `Tdg` and `SX`, and rotations conjugated by `±1` permutations. A run is
-replaced only by a product that rounds no more, so the result is at least as
-close to the ideal circuit: rewrites of exact gates leave Numba and CUDA
-values unchanged, and cancelled `H` or `T` gates no longer add their rounding.
+replaced only by a product that rounds no more, so the result is closer to
+the ideal circuit on average (a circuit can end up to 0.06 eps worse): rewrites
+of exact gates leave Numba and CUDA values unchanged, and cancelled `H` or `T`
+gates no longer add their rounding.
 Two rotations are never merged with each other. From the all-zero start,
 gates that act as the identity on qubits still in a known basis state (a `CX`
 whose control is still `|0⟩`) are dropped. Measurements, resets and channels

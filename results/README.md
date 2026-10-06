@@ -34,6 +34,15 @@ history; the engine code they ran is, file for file:
 | `078172a`, `ff32619` (r9, GPU) | `scaling-r9.json`, `ab-r8-r9.json` | `cupy.py`, `nb.py`, `np.py`, `base.py`: `0875056` |
 | `597c1a4` (r9, CPU) | `scaling-r9-cpu.json`, `simplify.json` | `cupy.py`, `np.py`, `base.py`: `0875056`; `nb.py`: `5c7c46d` |
 
+The table covers the engine files only. In every measured r9 revision
+`simulator.py` also differs from the public commit (validation and routing,
+not numerical code), and in `597c1a4` `simplify.py` differs from every public
+commit in which steps count as barriers, so `simplify.json` measured a
+predecessor of the published simplifier. `tile-check-cuda.json` mentions
+`b8834a3`, a working commit that is not in the public history. Three files
+name no revision: `ab-unitary-tiles.json` for its candidate arm, `cpu-tiles.json`,
+and the speed rows of `simplify.json`.
+
 `precision.json` was measured on r8 code. Rerunning the same harness on r9
 code (`597c1a4`, recorded in `simplify.json`) reproduced all 330 of its
 runtime-circuit errors exactly.
