@@ -89,6 +89,7 @@ class AtomArraySimulator(Simulator):
     """
 
     _supports_loss = True
+    _AUTO_RUNTIMES = ("numba",)
 
     def __init__(
         self,
@@ -116,10 +117,10 @@ class AtomArraySimulator(Simulator):
             BackendValidationError: If ``method`` or ``runtime`` is invalid,
                 or ``noise`` contains a source this simulator cannot run.
         """
-        if str(runtime).lower() == "cuda":
+        if str(runtime).lower() in ("cuda", "metal"):
             raise BackendValidationError(
-                "AtomArraySimulator does not support runtime='cuda'; its occupancy "
-                "lifecycle requires dynamic shots"
+                f"AtomArraySimulator does not support runtime={str(runtime).lower()!r}; "
+                "its occupancy lifecycle runs on the CPU engines"
             )
         canonical_method = _canonicalize_method(
             method, {"statevector", "density_matrix"}

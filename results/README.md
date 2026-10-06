@@ -103,6 +103,15 @@ measured commit fe0c021.
 | `differential-check-r12.json` | The differential check with r12's new section, `simplify="auto"` against `False` through the public API (counts and states bit for bit), on this machine's CPU and Apple-GPU prototype | `perf/differential_check.py` |
 | `differential-check-r12-cuda.json` | The same on a machine with a GPU, CUDA engines included | `perf/differential_check.py` |
 
+## r13 records
+
+r13 adds `runtime="metal"` (the Apple GPU beside Numba) and `runtime="auto"`.
+
+| File | What it holds | Produced by |
+| --- | --- | --- |
+| `metal-check.json` | `runtime="metal"` against Numba alone at 24 and 26 qubits on the four tile workloads, adaptive and fixed GPU shares, arms alternating; every state compared by bit pattern; resident memory over 100 states | `perf/metal_check.py --qubits 24 26` |
+| `auto-check.json` | `runtime="auto"` against Numba and one GPU, statevectors at 10–24 qubits and density matrices at 5–12, arms alternating; counts asserted equal to the chosen runtime's | `perf/auto_check.py` |
+
 ## Earlier record
 
 `benchmarks.json` is a scrubbed transcription of the benchmark record behind

@@ -120,6 +120,12 @@ unchanged.
   metadata says what it did. `simplify=True` adds phase folding: phase gates
   on one parity of qubits are summed across `CX`, `X` and `SWAP` gates, as in
   Nam et al. (2018), under the same rule that a rewrite never adds rounding.
+- **r13: the Apple GPU, and a runtime that picks the hardware.**
+  `runtime="metal"` shares each batch of gate tiles between Numba and the
+  Apple GPU, which computes binary64 in software in Numba's operation order:
+  states are bit-identical to Numba's, 1.2–1.5× faster at 24–26 qubits on
+  the measured laptop. `runtime="auto"` chooses CUDA on every GPU for large
+  states, else Metal for large statevectors, else Numba, run by run.
 
 What crosses between host and device on each kind of call, and where that is in the code: [docs/cuda-coverage.md](docs/cuda-coverage.md#host-and-device).
 
@@ -190,7 +196,7 @@ tests/                     upstream suite plus the CUDA tests (tests/simulator/t
 perf/                      precision, scaling and sweep benchmarks, and the publication scrub check
 scripts/                   check.sh (tests, then demo.sh) and demo.sh (accuracy against a 60-digit reference)
 results/                   scrubbed benchmark and precision records, and how to read them
-prototypes/metal/          Apple-GPU prototype: software binary64, the tile kernel in Metal, CPU+GPU split
+prototypes/metal/          Apple-GPU prototype (now runtime="metal", src/fatqat/simulator/_engine/metal.py)
 docs/                      fork pages, the upstream README and design notes, the MkDocs site (docs/mkdocs/)
 .github/workflows/         upstream tests and lint, plus the fork's CPU-path CI
 LICENSE, NOTICE            Apache-2.0; the fork notice

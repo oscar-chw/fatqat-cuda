@@ -2018,6 +2018,15 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
         tile, rest = self._tile_bits(pending)
         tile_bits = np.array(tile, dtype=np.int64)
         rest_bits = np.array(rest, dtype=np.int64)
+        self._state = _apply_tiles(
+            np.ascontiguousarray(self._state, dtype=np.complex128),
+            tile_bits,
+            rest_bits,
+            *self._tile_descriptors(pending, tile_bits),
+        )
+
+    def _tile_descriptors(self, pending, tile_bits) -> tuple[np.ndarray, ...]:
+        """`_tile_gates`' per-gate arrays for one batch on ``tile_bits``."""
         position = {int(q): i for i, q in enumerate(tile_bits)}
         count = len(pending)
         codes = np.empty(count, dtype=np.int64)
@@ -2049,10 +2058,7 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
             matrices[g, :dim, :dim] = form.matrix
             columns[g, :dim] = step_columns
             values[g, :dim] = step_values
-        self._state = _apply_tiles(
-            np.ascontiguousarray(self._state, dtype=np.complex128),
-            tile_bits,
-            rest_bits,
+        return (
             codes,
             widths,
             targets,
