@@ -1,7 +1,9 @@
 {
  "description": "Prototype Metal engine (software binary64 tiles on the Apple GPU, sharing each tile batch with Numba on the CPU) against Numba alone; same process, arms alternating.",
  "measurement_date": "2026-10-06",
- "code_revision": "bf18feb",
+ "code_revision": "295dbe0",
+ "equality": "bit patterns (tells -0.0 from +0.0), against Numba with its cache tiles",
+ "signed_zeros_and_conjugated_gates_bit_identical": true,
  "rows": [
   {
    "workload": "qft",
@@ -9,11 +11,11 @@
    "steps": 324,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 0.5761210001073778,
-    "metal_0.40": 0.44890412501990795
+    "numba": 0.5517104580067098,
+    "metal_0.40": 0.43593237502500415
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.2833943107157415
+    "metal_0.40": 1.2655872553055159
    }
   },
   {
@@ -22,11 +24,11 @@
    "steps": 397,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 0.9383394159376621,
-    "metal_0.40": 0.6606543338857591
+    "numba": 0.8857357501983643,
+    "metal_0.40": 0.6383680840954185
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.4203182629842863
+    "metal_0.40": 1.3875000525025796
    }
   },
   {
@@ -35,11 +37,11 @@
    "steps": 360,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 1.1056402921676636,
-    "metal_0.40": 0.8268161253072321
+    "numba": 1.0103083751164377,
+    "metal_0.40": 0.7807455421425402
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.337226329199645
+    "metal_0.40": 1.294030283341645
    }
   },
   {
@@ -48,11 +50,11 @@
    "steps": 600,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 1.6698799589648843,
-    "metal_0.40": 1.2092572920955718
+    "numba": 1.5740014580078423,
+    "metal_0.40": 1.1150662498548627
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.3809136979203827
+    "metal_0.40": 1.4115766289336753
    }
   },
   {
@@ -61,11 +63,11 @@
    "steps": 377,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 2.4765147077850997,
-    "metal_0.40": 1.926786667201668
+    "numba": 2.3692567911930382,
+    "metal_0.40": 1.9037529998458922
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.285308202480879
+    "metal_0.40": 1.2445190060815812
    }
   },
   {
@@ -74,11 +76,11 @@
    "steps": 433,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 3.9543585828505456,
-    "metal_0.40": 2.7359689171426
+    "numba": 3.7492676246911287,
+    "metal_0.40": 2.53834291594103
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.445322919450566
+    "metal_0.40": 1.477053238609086
    }
   },
   {
@@ -87,11 +89,11 @@
    "steps": 390,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 4.315997167024761,
-    "metal_0.40": 3.3509015417657793
+    "numba": 4.102715875022113,
+    "metal_0.40": 3.1473830421455204
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.2880107377760848
+    "metal_0.40": 1.3035324331624274
    }
   },
   {
@@ -100,11 +102,11 @@
    "steps": 600,
    "identical_to_numba": true,
    "median_s": {
-    "numba": 6.33117058314383,
-    "metal_0.40": 4.615874166600406
+    "numba": 5.886068957857788,
+    "metal_0.40": 4.076263041701168
    },
    "speedup_over_numba": {
-    "metal_0.40": 1.3716081406540466
+    "metal_0.40": 1.4439865380722152
    }
   }
  ]

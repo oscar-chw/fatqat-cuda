@@ -4,10 +4,14 @@ This product is a fork of FatQat (https://github.com/spaceqat/fatqat),
 developed by the FatQat authors and licensed under the Apache License,
 Version 2.0. The FatQat source, documentation and tests are their work.
 
-This fork adds a CUDA engine for the FatQat simulator: statevector,
-density-matrix, unitary and superoperator execution on one NVIDIA GPU
-through CuPy, with its tests and documentation.
-Those additions and modifications are Copyright 2026 Oscar Choi and are
-licensed under the Apache License, Version 2.0.
+This fork adds a CUDA engine for the FatQat simulator (statevector,
+density-matrix, unitary and superoperator execution on NVIDIA GPUs through
+CuPy), cache and shared-memory gate tiles for the Numba and CUDA engines,
+exact circuit simplification, multi-GPU parameter sweeps, an Apple-GPU
+(Metal) prototype, and their tests, benchmarks and documentation.
+Those additions and modifications are Copyright 2026 CHOI Hei Wang (Oscar)
+and are licensed under the Apache License, Version 2.0. They were developed
+by a student at The Chinese University of Hong Kong, inspired by the course
+CENG5280.
 
 See LICENSE for the full license text.

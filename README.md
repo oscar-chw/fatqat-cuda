@@ -3,7 +3,7 @@
 [![CUDA fork CI](https://github.com/oscar-chw/fatqat-cuda/actions/workflows/cuda-fork-ci.yml/badge.svg)](https://github.com/oscar-chw/fatqat-cuda/actions/workflows/cuda-fork-ci.yml)
 
 A CUDA backend for the open-source FatQat simulator ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), which is written by the FatQat authors and released under Apache-2.0; this fork adds a GPU engine to it.
-Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK), as part of coursework for CENG5280, 2026-27 Term 1.
+Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK); the work was inspired by the course CENG5280.
 With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core), and r9 doubles r8's GPU speed there with the same memory and bit-identical results ([Results](#results)).
 
 The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
@@ -209,7 +209,7 @@ Docs: see [docs/README.md](docs/README.md).
 
 ## Limits
 
-- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); stochastic statevector trajectories (CUDA statevectors reject channels, reset, mid-circuit measurement and feedforward); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba, and sharing each tile batch between the Apple GPU and the CPU is 1.28–1.45× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
+- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); stochastic statevector trajectories (CUDA statevectors reject channels, reset, mid-circuit measurement and feedforward); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba's tiles, and sharing each tile batch between the Apple GPU and the CPU is 1.24–1.48× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
 - The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
 - Several GPUs help only `run_sweep`, and scale sublinearly because each row's Python-side work runs one thread at a time; one simulation is never split across GPUs.
 - The CUDA 12 extra is packaged but has not been tested on a device.
@@ -227,6 +227,6 @@ Docs: see [docs/README.md](docs/README.md).
 ## Credits and licence
 
 - FatQat, its source, documentation and tests are the work of the FatQat authors ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), Apache-2.0. Their README is kept in [docs/upstream-README.md](docs/upstream-README.md).
-- The fork's CUDA engine, its tests and documentation are Copyright 2026 Oscar Choi, Apache-2.0; see [NOTICE](NOTICE) and [LICENSE](LICENSE).
+- The fork's additions (the CUDA engine, gate tiles, exact simplification, multi-GPU sweeps, the Metal prototype) and their tests and documentation are Copyright 2026 CHOI Hei Wang (Oscar), released under Apache-2.0 like FatQat itself; see [NOTICE](NOTICE) and [LICENSE](LICENSE).
 
-Implemented with AI coding agents under Oscar's design and review.
+Implemented with AI coding agents under CHOI Hei Wang's design and review.

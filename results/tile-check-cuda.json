@@ -1,7 +1,7 @@
 {
  "description": "Tiles where controls and diagonal gates take no tile bit, against tiles where every target does and against per-gate passes; same engine, arms alternating in one process.",
  "measurement_date": "2026-10-06",
- "code_revision": "c58ce3f",
+ "code_revision": "3a6158b",
  "software": {
   "python": "3.12.3",
   "numpy": "2.3.5"
