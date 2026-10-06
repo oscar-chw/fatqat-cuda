@@ -638,6 +638,99 @@ def _apply_resolved_parallel(
     return state
 
 
+# --- cache tiles (qubit statevectors) ---
+#
+# A run of one- and two-qubit gates whose targets fit in one tile of qubits is
+# applied tile by tile: each thread gathers the 2**tile_bits amplitudes that
+# share the remaining qubits into a cache-resident buffer, applies every gate
+# of the run in order, and scatters the tile back once. Per-amplitude
+# arithmetic is the coset kernels' own, so results are bit-identical; only the
+# number of passes over the full state changes.
+
+
+@njit(cache=True, inline="always")
+def _deposit(value, bits) -> int:  # pragma: no cover - compiled by Numba
+    """Scatter the low bits of ``value`` onto the bit positions ``bits``."""
+    index = 0
+    for b in range(bits.shape[0]):
+        if (value >> b) & 1:
+            index |= 1 << bits[b]
+    return index
+
+
+@njit(cache=True)
+def _tile_gates(
+    tile, codes, firsts, seconds, widths, matrices, columns, values
+) -> None:  # pragma: no cover - compiled by Numba
+    """Apply a run of qubit gates to one gathered tile, in order."""
+    size = tile.shape[0]
+    offsets = np.empty(4, dtype=np.int64)
+    gathered = np.empty(4, dtype=np.complex128)
+    for g in range(codes.shape[0]):
+        width = widths[g]
+        dim = 1 << width
+        first, second = firsts[g], seconds[g]
+        for c in range(dim):
+            if width == 1:
+                offsets[c] = c << first
+            else:
+                offsets[c] = ((c >> 1) << first) | ((c & 1) << second)
+        lo, hi = first, second
+        if width == 2 and lo > hi:
+            lo, hi = hi, lo
+        for k in range(size >> width):
+            base = (k & ((1 << lo) - 1)) | ((k >> lo) << (lo + 1))
+            if width == 2:
+                base = (base & ((1 << hi) - 1)) | ((base >> hi) << (hi + 1))
+            if codes[g] == _DIAGONAL:
+                for r in range(dim):
+                    tile[base + offsets[r]] *= values[g, r]
+            elif codes[g] == _PERMUTATION:
+                for c in range(dim):
+                    gathered[c] = tile[base + offsets[c]]
+                for r in range(dim):
+                    tile[base + offsets[r]] = values[g, r] * gathered[columns[g, r]]
+            else:
+                for c in range(dim):
+                    gathered[c] = tile[base + offsets[c]]
+                for r in range(dim):
+                    acc = 0.0 + 0.0j
+                    for c in range(dim):
+                        acc += matrices[g, r, c] * gathered[c]
+                    tile[base + offsets[r]] = acc
+
+
+@njit(cache=True, parallel=True)
+def _apply_tiles(
+    state,
+    tile_bits,
+    rest_bits,
+    codes,
+    firsts,
+    seconds,
+    widths,
+    matrices,
+    columns,
+    values,
+) -> np.ndarray:  # pragma: no cover - compiled by Numba
+    """Gather, update and scatter every tile; tiles are independent."""
+    size = 1 << tile_bits.shape[0]
+    # Offsets of a tile's amplitudes, shared by every tile: one table lookup
+    # per element instead of re-depositing its bits.
+    offsets = np.empty(size, dtype=np.int64)
+    for j in range(size):
+        offsets[j] = _deposit(j, tile_bits)
+    for t in prange(1 << rest_bits.shape[0]):  # pylint: disable=not-an-iterable
+        base = _deposit(t, rest_bits)
+        tile = np.empty(size, dtype=np.complex128)
+        for j in range(size):
+            tile[j] = state[base + offsets[j]]
+        _tile_gates(tile, codes, firsts, seconds, widths, matrices, columns, values)
+        for j in range(size):
+            state[base + offsets[j]] = tile[j]
+    return state
+
+
 # --- sparse coset kernel (density-matrix channel super-operators) ---
 #
 # A channel super-operator ``sum_i kron(K_i, conj(K_i))`` is often mostly zero
@@ -1709,6 +1802,16 @@ class NumbaSVEngine(NumpySVEngine):
     _supports_kernel_threads = True
     _thread_capacity = _MAX_THREADS
 
+    # Cache tiles (see `_apply_tiles`). Consecutive one- and two-qubit gates
+    # whose targets fit in one tile of _TILE_BITS qubits are queued and applied
+    # in one pass. The tile always includes the _COALESCED_BITS lowest qubits so
+    # each gather reads whole cache lines. Tiling engages only for qubit
+    # statevectors larger than _TILE_MIN_BYTES; smaller states stay in the
+    # last-level cache, where per-gate passes are already cheap.
+    _TILE_BITS = 12
+    _COALESCED_BITS = 3
+    _TILE_MIN_BYTES = 32 * 2**20
+
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
         """Return whether the compiled outer loop can encode this exact plan."""
         return _plan_compilable(plan)
@@ -1726,6 +1829,8 @@ class NumbaSVEngine(NumpySVEngine):
         # per-shot dynamic loop re-initializes per trajectory and must keep
         # its once-per-plan resolutions.
         self._structure_cache: dict[int, tuple] = {}
+        self._pending: list[ApplyMatrixStep] = []
+        self._pending_bits: frozenset[int] = frozenset()
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         dims_changed = tuple(int(dim) for dim in system_dims) != self._dims
@@ -1733,8 +1838,86 @@ class NumbaSVEngine(NumpySVEngine):
         if dims_changed:
             self._apply_plans = {}
 
+    @property
+    def state(self) -> np.ndarray:
+        # Every read of the state first applies any queued gates.
+        self._flush_pending()
+        return super().state
+
+    @state.setter
+    def state(self, value: np.ndarray) -> None:
+        self._flush_pending()
+        self._state = value
+
+    def initialize(self, *args, **kwargs) -> None:
+        self._pending, self._pending_bits = [], frozenset()
+        super().initialize(*args, **kwargs)
+
+    @contextmanager
     def _execution_scope(self, policy: ExecutionPolicy):
-        return _thread_scope(policy)
+        with _thread_scope(policy):
+            yield
+            self._flush_pending()
+
+    def _tileable(self, targets: Sequence[int]) -> bool:
+        n = len(self._dims)
+        return (
+            self._state is not None
+            and self._state.ndim == 1  # operator engines reuse apply on 2-D maps
+            and n >= self._TILE_BITS
+            and (1 << n) * 16 > self._TILE_MIN_BYTES
+            and len(targets) <= 2
+            and all(dim == 2 for dim in self._dims)
+        )
+
+    def _flush_pending(self) -> None:
+        pending = self._pending
+        if not pending:
+            return
+        self._pending, self._pending_bits = [], frozenset()
+        if len(pending) == 1:
+            self._apply_now(pending[0])
+            return
+        n = len(self._dims)
+        tile = set(range(self._COALESCED_BITS))
+        for step in pending:
+            tile.update(step.target_indices)
+        for q in range(n):
+            if len(tile) == self._TILE_BITS:
+                break
+            tile.add(q)
+        tile_bits = np.array(sorted(tile), dtype=np.int64)
+        rest_bits = np.array([q for q in range(n) if q not in tile], dtype=np.int64)
+        position = {int(q): i for i, q in enumerate(tile_bits)}
+        count = len(pending)
+        codes = np.empty(count, dtype=np.int64)
+        firsts = np.empty(count, dtype=np.int64)
+        seconds = np.empty(count, dtype=np.int64)
+        widths = np.empty(count, dtype=np.int64)
+        matrices = np.zeros((count, 4, 4), dtype=np.complex128)
+        columns = np.zeros((count, 4), dtype=np.int64)
+        values = np.zeros((count, 4), dtype=np.complex128)
+        for g, step in enumerate(pending):
+            code, step_columns, step_values = self._resolve_structure(step)
+            targets = step.target_indices
+            dim = 1 << len(targets)
+            codes[g], widths[g] = code, len(targets)
+            firsts[g], seconds[g] = position[targets[0]], position[targets[-1]]
+            matrices[g, :dim, :dim] = step.matrix
+            columns[g, :dim] = step_columns
+            values[g, :dim] = step_values
+        self._state = _apply_tiles(
+            np.ascontiguousarray(self._state, dtype=np.complex128),
+            tile_bits,
+            rest_bits,
+            codes,
+            firsts,
+            seconds,
+            widths,
+            matrices,
+            columns,
+            values,
+        )
 
     def materialize_execution(
         self,
@@ -1838,7 +2021,24 @@ class NumbaSVEngine(NumpySVEngine):
         return resolved
 
     def apply(self, step: ApplyMatrixStep) -> None:
-        """Apply one plan step - the standard path (key-aware, cached)."""
+        """Apply one plan step - the standard path (key-aware, cached).
+
+        Qubit gates on large statevectors are queued for cache tiles.
+        """
+        targets = step.target_indices
+        if not self._tileable(targets):
+            self._flush_pending()
+            self._apply_now(step)
+            return
+        bits = self._pending_bits | frozenset(targets)
+        if len(bits | frozenset(range(self._COALESCED_BITS))) > self._TILE_BITS:
+            self._flush_pending()
+            bits = frozenset(targets)
+        self._pending.append(step)
+        self._pending_bits = bits
+
+    def _apply_now(self, step: ApplyMatrixStep) -> None:
+        """Apply one step immediately through the per-gate coset kernels."""
         code, columns, values = self._resolve_structure(step)
         self._state = self._launch_resolved(
             self.state, step.matrix, step.target_indices, code, columns, values
