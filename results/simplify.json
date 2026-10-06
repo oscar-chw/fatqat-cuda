@@ -1,0 +1,140 @@
+{
+ "description": "simulation_config simplify=True: speed on a Clifford-rich circuit (6 layers of random RY/RZ, staggered CX, then S.S, X.X and CX.CX on every qubit), and accuracy with and without it.",
+ "measurement_date": "2026-10-06",
+ "rule": "only gates with entries 0, +-1, +-i (one per row and column) are merged or cancelled",
+ "speed_public_estimator_call": [
+  {
+   "configuration": "CPU A, compiled Numba, 8 threads",
+   "qubits": 22,
+   "median_ms": {
+    "plain": 1495.177290868014,
+    "simplify": 870.0590832158923
+   },
+   "speedup": 1.718,
+   "values_identical": true
+  },
+  {
+   "configuration": "CPU B, compiled Numba, 32 threads",
+   "qubits": 24,
+   "median_ms": {
+    "plain": 12838.044413132593,
+    "simplify": 6878.49161401391
+   },
+   "speedup": 1.866,
+   "values_identical": true
+  },
+  {
+   "configuration": "one GPU",
+   "qubits": 22,
+   "median_ms": {
+    "plain": 106.18144599720836,
+    "simplify": 93.68830197490752
+   },
+   "speedup": 1.133,
+   "values_identical": true
+  },
+  {
+   "configuration": "one GPU",
+   "qubits": 24,
+   "median_ms": {
+    "plain": 144.73864785395563,
+    "simplify": 143.46073404885828
+   },
+   "speedup": 1.009,
+   "values_identical": true
+  },
+  {
+   "configuration": "one GPU",
+   "qubits": 26,
+   "median_ms": {
+    "plain": 535.872254986316,
+    "simplify": 341.02626517415047
+   },
+   "speedup": 1.571,
+   "values_identical": true
+  },
+  {
+   "configuration": "one GPU",
+   "qubits": 28,
+   "median_ms": {
+    "plain": 2244.1676650196314,
+    "simplify": 1313.013729872182
+   },
+   "speedup": 1.709,
+   "values_identical": true
+  }
+ ],
+ "accuracy_vs_extended_precision_reference": [
+  {
+   "qubits": 14,
+   "circuits": 30,
+   "steps": 621,
+   "simplified_steps": 291,
+   "errors_identical_on_every_runtime": true,
+   "summary_eps": {
+    "numpy/plain": {
+     "max_eps": 0.204495530023738,
+     "mean_eps": 0.15167789278549576
+    },
+    "numpy/simplify": {
+     "max_eps": 0.204495530023738,
+     "mean_eps": 0.15167789278549576
+    },
+    "numba/plain": {
+     "max_eps": 0.22680339927045878,
+     "mean_eps": 0.16326327712798108
+    },
+    "numba/simplify": {
+     "max_eps": 0.22680339927045878,
+     "mean_eps": 0.16326327712798108
+    },
+    "cuda/plain": {
+     "max_eps": 0.24606317990650334,
+     "mean_eps": 0.14394767592978103
+    },
+    "cuda/simplify": {
+     "max_eps": 0.24606317990650334,
+     "mean_eps": 0.14394767592978103
+    }
+   }
+  },
+  {
+   "qubits": 22,
+   "circuits": 4,
+   "steps": 981,
+   "simplified_steps": 459,
+   "errors_identical_on_every_runtime": true,
+   "summary_eps": {
+    "numpy/plain": {
+     "max_eps": 0.0303988863732656,
+     "mean_eps": 0.026719472204231022
+    },
+    "numpy/simplify": {
+     "max_eps": 0.0303988863732656,
+     "mean_eps": 0.026719472204231022
+    },
+    "numba/plain": {
+     "max_eps": 0.036437295832436295,
+     "mean_eps": 0.02732398250723071
+    },
+    "numba/simplify": {
+     "max_eps": 0.036437295832436295,
+     "mean_eps": 0.02732398250723071
+    },
+    "cuda/plain": {
+     "max_eps": 0.026481111049406425,
+     "mean_eps": 0.02440778092040969
+    },
+    "cuda/simplify": {
+     "max_eps": 0.026481111049406425,
+     "mean_eps": 0.02440778092040969
+    }
+   }
+  }
+ ],
+ "accuracy_vs_60_digit_oracle": {
+  "circuits": 110,
+  "code_revision": "597c1a4",
+  "note": "random dense circuits contain no unit gates, so nothing merges; all 330 runtime-circuit errors equal results/precision.json exactly"
+ }
+}

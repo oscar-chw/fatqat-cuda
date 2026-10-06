@@ -4,7 +4,7 @@
 
 A CUDA backend for the open-source FatQat simulator ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), which is written by the FatQat authors and released under Apache-2.0; this fork adds a GPU engine to it.
 Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK), as part of coursework for CENG5280, 2026-27 Term 1.
-On the earlier r7 engine, one GPU ran a 24-qubit statevector observable about 35× faster than compiled Numba on 4 CPU threads and 6× faster than on all cores; the committed r8 engine has not been timed against the CPU ([Results](#results)).
+With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads, and r9 doubles r8's GPU speed there with the same memory and bit-identical results ([Results](#results)).
 
 The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
 
@@ -87,10 +87,16 @@ unchanged.
   random stream. The probability vector stays on the GPU.
 - **Optional.** The `cuda13` and `cuda12` extras install CuPy. Without them
   nothing changes, and CuPy is imported only when a CUDA run starts.
-- **CPU engines unchanged in behaviour.** The NumPy engine gained an
+- **CPU engines give the same results.** The NumPy engine gained an
   array-namespace hook that defaults to NumPy, so the CUDA engine can reuse
-  its code. Eight CPU fixtures, RNG state included, are bit-identical to
-  upstream (`verification.json`).
+  its code; eight CPU fixtures were bit-identical to upstream at r8
+  (`verification.json`).
+- **r9: fewer passes over memory, same arithmetic.** Runs of qubit gates are
+  applied tile by tile in GPU shared memory and, for the Numba CPU engine, in
+  cache, bit-identical to per-gate kernels. Opt-in `simplify=True` merges and
+  cancels only gates that never round (Paulis, `S`, `CX`, `SWAP`, ...), and
+  `device_id=(0, 1, ...)` spreads `run_sweep` rows over several GPUs
+  ([how, and why accuracy holds](docs/optimisations.md)).
 
 What crosses between host and device on each kind of call. Everything not drawn as an arrow stays where it is.
 
@@ -130,24 +136,25 @@ Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `
 
 ## Results
 
-**r8 = the committed code.** The GPU-vs-CPU ratios were measured on earlier engine revisions (r7 and v5); r8 changed
-only the CUDA engine and has not been timed against the CPU. Each figure is how many times faster the GPU (or r8) was,
-from a median of 5 or 6 warm calls on 2026-09-15, complex128, including synchronisation and host output; below 1 means slower.
+All figures are medians of warm public calls on 2026-10-06, complex128, including synchronisation and host output,
+for two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable is three Pauli terms).
+"CPU" is compiled Numba with `NUMBA_NUM_THREADS=32`; separate CPU runs varied, so the controlled comparisons are the same-run A/B files. Each row links its evidence.
 
-| Workload | GPU vs CPU 4 threads (r7) | GPU vs CPU all cores (r7) | GPU vs CPU 16 workers (v5) | r8 vs r7, GPU only | Evidence |
-| --- | ---: | ---: | ---: | ---: | --- |
-| 24-qubit statevector, full state | 21.83× | 3.25× | 10.14× | 1.09× | [benchmarks.json](results/benchmarks.json) |
-| 24-qubit statevector, observable | 34.75× | 6.00× | not run | 1.15× | [benchmarks.json](results/benchmarks.json) |
-| 11-qubit noisy density matrix, full | 8.04× | 1.75× | 2.38× | 1.60× | [benchmarks.json](results/benchmarks.json) |
-| 11-qubit noisy density matrix, observable | 10.17× | 1.63× | not run | 1.90× | [benchmarks.json](results/benchmarks.json) |
-| 11-qubit unitary | 12.42× | 4.80× | 10.04× | 1.10× | [benchmarks.json](results/benchmarks.json) |
-| 4-qubit noisy superoperator | not run | not run | 0.98× (GPU 1.02× slower) | 1.27× | [benchmarks.json](results/benchmarks.json) |
+| What was compared | Size | Result | Evidence |
+| --- | --- | ---: | --- |
+| r9 vs r8 engine, one GPU, same run (observable) | 24–28 qubits | 2.09–2.22× faster, same memory | [ab-r8-r9.json](results/ab-r8-r9.json) |
+| One GPU vs CPU, both r9 (observable) | 24–28 qubits | 35–42× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
+| One GPU vs CPU, both r9 (full state copied back) | 24–28 qubits | 16–25× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
+| One GPU vs CPU, noisy density matrix and unitary (unchanged in r9) | 11–14 qubits | 2.6–12.6× faster | [scaling.json](results/scaling.json) |
+| CPU only: Numba cache tiles vs per-gate passes, gate core | 22–26 qubits | 1.23–1.27× (CPU A), 1.30–1.55× (CPU B) | [cpu-tiles.json](results/cpu-tiles.json) |
+| `simplify=True` on a Clifford-rich circuit, identical values | 22–28 qubits | CPU 1.7–1.9×, GPU 1.0–1.7× | [simplify.json](results/simplify.json) |
+| Accuracy vs a 60-digit reference, 110 circuits, all four methods | up to 5 qubits | ≤ 3.1 eps on every runtime; GPU vs Numba −0.045 ± 0.031 eps | [precision.json](results/precision.json) |
 
-- **The baselines differ in strength.** "All cores" was the fastest CPU setting recorded and varied widely; 16 workers is a weaker baseline on an older engine.
-- **The GPU does not always win:** the 4-qubit superoperator was a tie or a small loss, and r8 is not faster than r7 everywhere.
-- **Precision:** within 8 machine epsilons of the CPU engine against an independent 60-digit reference; equal-or-better in every case is not established.
+- **The GPU does not always win.** Density-matrix and unitary runs at 6–8 qubits were 0.22–1.08× (mostly slower on the GPU), and noisy density matrices gain least (2.6–8× at 11–14 qubits).
+- **r9 is not faster everywhere.** Density-matrix and unitary GPU code did not change (0.96–1.04× in the same-run comparison).
+- **Accuracy is equal, not better.** GPU and Numba errors are statistically indistinguishable; NumPy is about 0.1 eps more accurate than both. Tiles and simplification give bit-identical results on Numba and CUDA.
 
-Workloads, ranges, the r8-vs-r7 detail and unmerged experiments: [docs/benchmarks.md](docs/benchmarks.md).
+How each change keeps accuracy and memory: [docs/optimisations.md](docs/optimisations.md). Every row, r7/r8 history and how to rerun: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Quick start
 
@@ -155,11 +162,11 @@ Workloads, ranges, the r8-vs-r7 detail and unmerged experiments: [docs/benchmark
 # CPU path, no GPU needed (Python 3.12+, pip 25.1+ for dependency groups)
 python -m pip install --upgrade pip
 python -m pip install --editable . --group dev --group qiskit
-python -m pytest -q        # expect: 2906 passed, 120 skipped (CUDA tests, CuPy not installed)
+python -m pytest -q        # expect: all pass; the CUDA tests skip (CuPy not installed)
 
 # NVIDIA GPU: install exactly one CUDA extra matching your toolkit ('.[cuda12]' is the other)
 python -m pip install --editable '.[cuda13]' --group dev --group qiskit mpmath
-python -m pytest -q        # now also runs the CUDA tests (r8: 3026 passed, no skips)
+python -m pytest -q        # now also runs the CUDA tests; tests needing 2+ GPUs skip on one
 ```
 
 Then use `Simulator("SV", runtime="cuda", device_id=0)` or `Simulator("DM", runtime="cuda", device_id=0)` from `fatqat.simulator`.
@@ -168,9 +175,10 @@ The r8 GPU run used CUDA 13.2 and CuPy 14.2 (`verification.json`); CI runs the C
 ## Project structure
 
 ```text
-src/fatqat/                FatQat package; the fork's GPU engine is simulator/_engine/cupy.py
+src/fatqat/                FatQat package; fork code: simulator/_engine/cupy.py, nb.py tiles, _backends/simplify.py
 tests/                     upstream suite plus the CUDA tests (tests/simulator/test_cuda_*.py, test_cupy_*.py)
-results/                   scrubbed benchmark record (benchmarks.json) and how to read it
+perf/                      precision, scaling and sweep benchmarks, and the publication scrub check
+results/                   scrubbed benchmark and precision records, and how to read them
 docs/                      fork pages, the upstream README and design notes, the MkDocs site (docs/mkdocs/)
 .github/workflows/         upstream tests and lint, plus the fork's CPU-path CI
 LICENSE, NOTICE            Apache-2.0; the fork notice
@@ -183,7 +191,8 @@ Docs: see [docs/README.md](docs/README.md).
 
 - **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); stochastic statevector trajectories (CUDA statevectors reject channels, reset, mid-circuit measurement and feedforward); Apple GPUs; splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)).
 - Small circuits can run faster on the CPU, because GPU launch costs can dominate.
-- r8, the committed engine, has not been timed against the CPU; every GPU-vs-CPU ratio is from r7 or v5.
+- The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
+- Several GPUs help only `run_sweep`, and scale sublinearly because each row's Python-side work runs one thread at a time; one simulation is never split across GPUs.
 - The CUDA 12 extra is packaged but has not been tested on a device.
 - The benchmark source documents belong to a private research record and are not published; `results/benchmarks.json` is a scrubbed transcription.
 - **Not merged upstream.** This is an independent fork and has not been submitted upstream.

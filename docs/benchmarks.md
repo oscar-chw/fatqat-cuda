@@ -1,8 +1,55 @@
 # Benchmarks: how much faster is the CUDA engine, against which baselines, and how precise?
 
-**r8 = the committed code.** The GPU-vs-CPU ratios below were measured on
-earlier engine revisions (r7 and v5). r8 changed only the CUDA engine, and its
-gain over r7 is shown separately. r8 has not been timed against the CPU.
+## r9 (the committed code), 2026-10-06
+
+Each figure is a median of 5 warm public calls of `perf/scaling.py` (two layers
+of RY/RZ on every qubit plus nearest-neighbour CX; the noisy cases add
+amplitude damping p=0.07 and phase damping p=0.02; an observable is three
+Pauli terms), complex128, including synchronisation and the requested host
+output. "CPU" is compiled Numba with `NUMBA_NUM_THREADS=32`; separate CPU runs
+varied from run to run. Every GPU output
+was checked against a CPU result (an inner product with a fixed random
+vector, or the expectation value) at every size.
+
+| Workload | Qubits | CPU r9 (ms) | GPU r9 (ms) | GPU vs CPU | GPU r8 (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| statevector, observable | 24 | 774.8 | 19.67 | 39.4× | 42.51 |
+| statevector, observable | 26 | 3,296.8 | 77.86 | 42.3× | 180.46 |
+| statevector, observable | 28 | 12,456.4 | 351.24 | 35.5× | 757.35 |
+| statevector, full state | 24 | 1,144.9 | 49.02 | 23.4× | 102.44 |
+| statevector, full state | 26 | 4,653.1 | 187.32 | 24.8× | 348.61 |
+| statevector, full state | 28 | 12,654.8 | 799.26 | 15.8× | 1,549.95 |
+
+Sources: [scaling-r9.json](../results/scaling-r9.json) (GPU r9),
+[scaling-r9-cpu.json](../results/scaling-r9-cpu.json) (CPU r9),
+[scaling.json](../results/scaling.json) (r8, both runtimes, and the
+density-matrix and unitary rows, whose code r9 did not change). Separate runs
+vary; the controlled comparison of r9 against r8 is the
+same-run A/B in [ab-r8-r9.json](../results/ab-r8-r9.json): the r8 and r9
+engines alternate child process by child process, with equal GPU memory pools
+and host memory in every pair.
+
+- **Where r9 is faster and why:** [optimisations.md](optimisations.md)
+  (tiles, simplification, several GPUs), with the CPU tile and
+  simplification A/Bs ([cpu-tiles.json](../results/cpu-tiles.json),
+  [simplify.json](../results/simplify.json)).
+- **Precision** ([precision.json](../results/precision.json)): 110 seeded
+  circuits over the statevector, density-matrix, unitary and superoperator
+  methods, qubit and mixed-radix, against a 60-digit evolution of the stored
+  complex128 coefficients. Every runtime stays within 3.1 float64 epsilons.
+  Paired over circuits, GPU minus Numba is −0.045 eps (standard error 0.031):
+  indistinguishable. NumPy is about 0.1 eps more accurate than both. Turning
+  off fused multiply-add on the GPU made it slightly worse (+0.049 eps, SE
+  0.024), so it stays on. "Better than the CPU" is not claimed.
+- **Rerun:** `python perf/precision.py --require-gpu --out p.json` and
+  `python perf/scaling.py --threads 32 --out s.json`; run
+  `python perf/scrub_check.py` on any output before publishing it.
+
+## Earlier revisions (r7, v5, r8), 2026-09-15
+
+These ratios were measured on earlier engine revisions (r7 and v5), with
+different CPU settings; r8's gain over r7 is shown separately. They are kept
+as history and are not comparable with the r9 table above.
 
 Each figure is a median of 5 or 6 warm public calls, measured on 2026-09-15.
 The workloads are two layers of RY/RZ on every qubit plus nearest-neighbour CX,

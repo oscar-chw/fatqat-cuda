@@ -1,0 +1,465 @@
+{
+ "description": "Median warm wall time, r9 Numba statevector engine (cache tiles), NUMBA_NUM_THREADS=32.",
+ "measurement_date": "2026-10-06",
+ "code_revision": "597c1a4",
+ "revision": "r9",
+ "simplify": false,
+ "software": {
+  "python": "3.12.3",
+  "numpy": "2.3.5",
+  "numba": "0.67.0"
+ },
+ "gpu_measured": false,
+ "configurations": {
+  "numba": "CPU (compiled Numba), 32 threads",
+  "cuda": null
+ },
+ "reference_file": null,
+ "workload_common": {
+  "circuit": "two layers of parameterised RY and RZ on every qubit plus staggered nearest-neighbour CX",
+  "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ (dm_* workloads)",
+  "observable": "0.8 Z..Z + 0.3 X..X - 0.2 Y..Y (*_observable workloads)",
+  "precision": "complex128 on CPU and GPU",
+  "shots": 0,
+  "timed": "one warm public FatQat call including GPU synchronisation and the requested host output",
+  "untimed": "imports, backend and program construction, the first call (reported as first_call_ms)"
+ },
+ "warm_calls_per_median": 5,
+ "max_seconds_per_call": 30.0,
+ "speedup_definition": "CPU median / GPU median at the same size; above 1 means the GPU is faster",
+ "correctness": "GPU output fingerprint matches CPU within 1e-10 at every size",
+ "rows": [
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 12,
+   "numba": {
+    "first_call_ms": 398.49642803892493,
+    "warm_ms": [
+     9.955983143299818,
+     10.156064992770553,
+     8.552403887733817,
+     8.07736604474485,
+     4.038447979837656
+    ],
+    "median_ms": 8.552403887733817,
+    "q1_ms": 6.057907012291253,
+    "q3_ms": 10.056024068035185,
+    "fingerprint": [
+     0.0075770035202092365,
+     -0.00131739769791116
+    ],
+    "peak_rss_mib": 218.96484375,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 14,
+   "numba": {
+    "first_call_ms": 280.14660091139376,
+    "warm_ms": [
+     6.569769000634551,
+     3.9847958832979202,
+     3.2583088614046574,
+     3.013230161741376,
+     2.9578751418739557
+    ],
+    "median_ms": 3.2583088614046574,
+    "q1_ms": 2.985552651807666,
+    "q3_ms": 5.277282441966236,
+    "fingerprint": [
+     0.007224433986149293,
+     0.0113541433777886
+    ],
+    "peak_rss_mib": 227.3359375,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 16,
+   "numba": {
+    "first_call_ms": 342.33782696537673,
+    "warm_ms": [
+     15.188741032034159,
+     13.987347017973661,
+     7.7982929069548845,
+     7.948458893224597,
+     14.96971002779901
+    ],
+    "median_ms": 13.987347017973661,
+    "q1_ms": 7.873375900089741,
+    "q3_ms": 15.079225529916584,
+    "fingerprint": [
+     -0.0026711906822681334,
+     0.0008463862120964105
+    ],
+    "peak_rss_mib": 238.04296875,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 18,
+   "numba": {
+    "first_call_ms": 338.7468478176743,
+    "warm_ms": [
+     21.559356013312936,
+     29.04811012558639,
+     35.62068194150925,
+     28.785674134269357,
+     22.403569892048836
+    ],
+    "median_ms": 28.785674134269357,
+    "q1_ms": 21.981462952680886,
+    "q3_ms": 32.33439603354782,
+    "fingerprint": [
+     7.101812761773141e-05,
+     0.003792043860052293
+    ],
+    "peak_rss_mib": 231.453125,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 20,
+   "numba": {
+    "first_call_ms": 445.9793290589005,
+    "warm_ms": [
+     81.3608628232032,
+     80.00804088078439,
+     74.59502993151546,
+     88.62454700283706,
+     90.82174394279718
+    ],
+    "median_ms": 81.3608628232032,
+    "q1_ms": 77.30153540614992,
+    "q3_ms": 89.72314547281712,
+    "fingerprint": [
+     -0.0013771946920739836,
+     0.0012998472080474556
+    ],
+    "peak_rss_mib": 268.1796875,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 22,
+   "numba": {
+    "first_call_ms": 4482.448653085157,
+    "warm_ms": [
+     320.51308592781425,
+     270.679326960817,
+     283.84710708633065,
+     294.30353711359203,
+     292.53280302509665
+    ],
+    "median_ms": 292.53280302509665,
+    "q1_ms": 277.2632170235738,
+    "q3_ms": 307.40831152070314,
+    "fingerprint": [
+     -0.000548811890493825,
+     0.0001002236492641546
+    ],
+    "peak_rss_mib": 381.6875,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 24,
+   "numba": {
+    "first_call_ms": 1411.0337779857218,
+    "warm_ms": [
+     1172.7363138925284,
+     1144.8958690743893,
+     1122.3282848950475,
+     1204.6559299342334,
+     1114.7986229043454
+    ],
+    "median_ms": 1144.8958690743893,
+    "q1_ms": 1118.5634538996965,
+    "q3_ms": 1188.696121913381,
+    "fingerprint": [
+     -0.0003370058854665959,
+     -0.00033073221116373816
+    ],
+    "peak_rss_mib": 745.53125,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 26,
+   "numba": {
+    "first_call_ms": 4833.589736837894,
+    "warm_ms": [
+     4665.121871046722,
+     4759.075515205041,
+     4595.3525740187615,
+     4653.070384869352,
+     4014.991295989603
+    ],
+    "median_ms": 4653.070384869352,
+    "q1_ms": 4305.171935004182,
+    "q3_ms": 4712.098693125881,
+    "fingerprint": [
+     -3.400285133006832e-05,
+     -0.00017157630892062758
+    ],
+    "peak_rss_mib": 2294.15234375,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 28,
+   "numba": {
+    "first_call_ms": 16896.499866852537,
+    "warm_ms": [
+     18676.679169991985,
+     18467.296160990372,
+     12654.837317066267,
+     10974.20588415116,
+     11398.082327796146
+    ],
+    "median_ms": 12654.837317066267,
+    "q1_ms": 11186.144105973653,
+    "q3_ms": 18571.98766549118,
+    "fingerprint": [
+     -7.110077381969161e-05,
+     -9.550994438927366e-05
+    ],
+    "peak_rss_mib": 8435.390625,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 12,
+   "numba": {
+    "first_call_ms": 326.6580768395215,
+    "warm_ms": [
+     2.986603183671832,
+     2.794913947582245,
+     2.622754080221057,
+     2.8715000953525305,
+     2.640340942889452
+    ],
+    "median_ms": 2.794913947582245,
+    "q1_ms": 2.6315475115552545,
+    "q3_ms": 2.9290516395121813,
+    "fingerprint": [
+     0.3461249257417548,
+     0.0
+    ],
+    "peak_rss_mib": 248.9296875,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 14,
+   "numba": {
+    "first_call_ms": 153.26625481247902,
+    "warm_ms": [
+     3.6370239686220884,
+     3.7381360307335854,
+     3.078571055084467,
+     3.129529068246484,
+     2.916367957368493
+    ],
+    "median_ms": 3.129529068246484,
+    "q1_ms": 2.99746950622648,
+    "q3_ms": 3.687579999677837,
+    "fingerprint": [
+     0.30811243922122794,
+     0.0
+    ],
+    "peak_rss_mib": 239.265625,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 16,
+   "numba": {
+    "first_call_ms": 144.05065006576478,
+    "warm_ms": [
+     6.9804450031369925,
+     6.0960520058870316,
+     5.969661055132747,
+     5.949050188064575,
+     6.417455850169063
+    ],
+    "median_ms": 6.0960520058870316,
+    "q1_ms": 5.959355621598661,
+    "q3_ms": 6.6989504266530275,
+    "fingerprint": [
+     0.2704949529825815,
+     0.0
+    ],
+    "peak_rss_mib": 243.6015625,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 18,
+   "numba": {
+    "first_call_ms": 207.64188398607075,
+    "warm_ms": [
+     18.852505832910538,
+     15.606330940499902,
+     14.858344104140997,
+     11.65542402304709,
+     12.73073605261743
+    ],
+    "median_ms": 14.858344104140997,
+    "q1_ms": 12.19308003783226,
+    "q3_ms": 17.22941838670522,
+    "fingerprint": [
+     0.23298717586324796,
+     0.0
+    ],
+    "peak_rss_mib": 250.77734375,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 20,
+   "numba": {
+    "first_call_ms": 219.91066192276776,
+    "warm_ms": [
+     55.23158889263868,
+     58.28384100459516,
+     56.42561800777912,
+     52.64014098793268,
+     54.88966288976371
+    ],
+    "median_ms": 55.23158889263868,
+    "q1_ms": 53.7649019388482,
+    "q3_ms": 57.35472950618714,
+    "fingerprint": [
+     0.19546843647977977,
+     0.0
+    ],
+    "peak_rss_mib": 289.5859375,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 22,
+   "numba": {
+    "first_call_ms": 331.77904901094735,
+    "warm_ms": [
+     193.35524295456707,
+     184.4450479838997,
+     168.02962613292038,
+     165.36067193374038,
+     163.97130698896945
+    ],
+    "median_ms": 168.02962613292038,
+    "q1_ms": 164.6659894613549,
+    "q3_ms": 188.9001454692334,
+    "fingerprint": [
+     0.15791425405257992,
+     0.0
+    ],
+    "peak_rss_mib": 370.96484375,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 24,
+   "numba": {
+    "first_call_ms": 1195.9856669418514,
+    "warm_ms": [
+     921.0594620089978,
+     803.711503976956,
+     774.7531100176275,
+     703.3873740583658,
+     665.0999949779361
+    ],
+    "median_ms": 774.7531100176275,
+    "q1_ms": 684.243684518151,
+    "q3_ms": 862.3854829929769,
+    "fingerprint": [
+     0.12035823022355337,
+     0.0
+    ],
+    "peak_rss_mib": 753.51953125,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 26,
+   "numba": {
+    "first_call_ms": 2553.1240480486304,
+    "warm_ms": [
+     2504.623289918527,
+     3296.8061559367925,
+     3584.705718094483,
+     3488.9395439531654,
+     2773.0410129297525
+    ],
+    "median_ms": 3296.8061559367925,
+    "q1_ms": 2638.8321514241397,
+    "q3_ms": 3536.822631023824,
+    "fingerprint": [
+     0.08287011980987145,
+     0.0
+    ],
+    "peak_rss_mib": 2295.6171875,
+    "gpu_pool_reserved_mib": null
+   }
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 28,
+   "numba": {
+    "first_call_ms": 12466.885830042884,
+    "warm_ms": [
+     10512.897530104965,
+     12456.445541931316,
+     10617.451634025201,
+     12590.815068921074,
+     15338.157255901024
+    ],
+    "median_ms": 12456.445541931316,
+    "q1_ms": 10565.174582065083,
+    "q3_ms": 13964.486162411049,
+    "fingerprint": [
+     0.04554283695490337,
+     0.0
+    ],
+    "peak_rss_mib": 8437.44140625,
+    "gpu_pool_reserved_mib": null
+   }
+  }
+ ]
+}

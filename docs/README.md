@@ -8,6 +8,7 @@ the pages below are the plain Markdown pages in this folder.
 | Page | What it answers |
 | --- | --- |
 | [cuda-coverage.md](cuda-coverage.md) | Which `runtime="cuda"` requests run on the GPU, and what happens to the rest? |
+| [optimisations.md](optimisations.md) | What r9 changes (gate tiles, simplification, several GPUs), and why accuracy and memory do not change. |
 | [CUDA runtime guide](mkdocs/en/api/cupy-simulator.md) | Coverage, precision and the tested environment of the CUDA runtime, in the MkDocs API reference. |
 
 ## Check the evidence
@@ -15,7 +16,7 @@ the pages below are the plain Markdown pages in this folder.
 | Page | What it answers |
 | --- | --- |
 | [benchmarks.md](benchmarks.md) | How much faster is the CUDA engine, against which CPU baselines and engine revisions, and how precise is it? |
-| [../results/README.md](../results/README.md) | How to read and recompute the scrubbed benchmark record `results/benchmarks.json`. |
+| [../results/README.md](../results/README.md) | What each results file holds, how it was produced, and how to rerun it. |
 
 ## Upstream FatQat (by the FatQat authors)
 

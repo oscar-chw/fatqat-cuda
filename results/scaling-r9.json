@@ -1,0 +1,1114 @@
+{
+ "description": "Median warm wall time of one public FatQat call, r9 engine on one GPU. CPU rows come from results/scaling.json (r8 code, compiled Numba, 32 threads).",
+ "measurement_date": "2026-10-06",
+ "code_revision": "078172a",
+ "revision": "r9",
+ "simplify": false,
+ "software": {
+  "python": "3.12.3",
+  "numpy": "2.3.5",
+  "numba": "0.67.0",
+  "cupy": "14.2.0"
+ },
+ "gpu_measured": true,
+ "configurations": {
+  "numba": null,
+  "cuda": "GPU, 1 device"
+ },
+ "reference_file": "scaling.json",
+ "workload_common": {
+  "circuit": "two layers of parameterised RY and RZ on every qubit plus staggered nearest-neighbour CX",
+  "noise": "amplitude damping p=0.07 after RY, phase damping p=0.02 after RZ (dm_* workloads)",
+  "observable": "0.8 Z..Z + 0.3 X..X - 0.2 Y..Y (*_observable workloads)",
+  "precision": "complex128 on CPU and GPU",
+  "shots": 0,
+  "timed": "one warm public FatQat call including GPU synchronisation and the requested host output",
+  "untimed": "imports, backend and program construction, the first call (reported as first_call_ms)"
+ },
+ "warm_calls_per_median": 5,
+ "max_seconds_per_call": 30.0,
+ "speedup_definition": "CPU median / GPU median at the same size; above 1 means the GPU is faster",
+ "correctness": "GPU output fingerprint matches CPU within 1e-10 at every size",
+ "rows": [
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 6,
+   "cuda": {
+    "first_call_ms": 313.7137028388679,
+    "warm_ms": [
+     3.0482469592243433,
+     2.6371770072728395,
+     2.555543091148138,
+     2.5253179483115673,
+     2.467449987307191
+    ],
+    "median_ms": 2.555543091148138,
+    "q1_ms": 2.496383967809379,
+    "q3_ms": 2.8427119832485914,
+    "fingerprint": [
+     -0.006191812856501132,
+     0.011067976913543082
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 0.78
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 7,
+   "cuda": {
+    "first_call_ms": 308.576419018209,
+    "warm_ms": [
+     3.1839909497648478,
+     2.840963890776038,
+     2.7856710366904736,
+     2.7977980207651854,
+     2.6978880632668734
+    ],
+    "median_ms": 2.7977980207651854,
+    "q1_ms": 2.7417795499786735,
+    "q3_ms": 3.012477420270443,
+    "fingerprint": [
+     -0.0018273179213500151,
+     -0.011503357386574846
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.01
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 8,
+   "cuda": {
+    "first_call_ms": 294.9890070594847,
+    "warm_ms": [
+     3.59561201184988,
+     3.2087587751448154,
+     3.183641005307436,
+     3.1581218354403973,
+     3.1122330110520124
+    ],
+    "median_ms": 3.183641005307436,
+    "q1_ms": 3.135177423246205,
+    "q3_ms": 3.402185393497348,
+    "fingerprint": [
+     -5.438968136875437e-05,
+     0.0016116512065388517
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.51
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 9,
+   "cuda": {
+    "first_call_ms": 304.2319759260863,
+    "warm_ms": [
+     6.227148929610848,
+     4.194905050098896,
+     3.7870800588279963,
+     3.718086052685976,
+     3.7249468732625246
+    ],
+    "median_ms": 3.7870800588279963,
+    "q1_ms": 3.7215164629742503,
+    "q3_ms": 5.211026989854872,
+    "fingerprint": [
+     -0.0005634123262373792,
+     0.00118798541011708
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 2.11
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 10,
+   "cuda": {
+    "first_call_ms": 304.20739599503577,
+    "warm_ms": [
+     8.186754072085023,
+     5.656168097630143,
+     5.415053805336356,
+     5.528415087610483,
+     5.893084919080138
+    ],
+    "median_ms": 5.656168097630143,
+    "q1_ms": 5.47173444647342,
+    "q3_ms": 7.039919495582581,
+    "fingerprint": [
+     0.0010712371510144013,
+     -0.0005608025584286953
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 4.19
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 11,
+   "cuda": {
+    "first_call_ms": 347.9188000783324,
+    "warm_ms": [
+     22.350586019456387,
+     23.222150979563594,
+     22.276785923168063,
+     22.031846921890974,
+     21.807136945426464
+    ],
+    "median_ms": 22.276785923168063,
+    "q1_ms": 21.91949193365872,
+    "q3_ms": 22.78636849950999,
+    "fingerprint": [
+     0.0005080150307127537,
+     -0.0003083167115714547
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 3.29
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 12,
+   "cuda": {
+    "first_call_ms": 453.2712690997869,
+    "warm_ms": [
+     117.39011690951884,
+     122.94588214717805,
+     117.09595308639109,
+     118.33399697206914,
+     119.95220300741494
+    ],
+    "median_ms": 118.33399697206914,
+    "q1_ms": 117.24303499795496,
+    "q3_ms": 121.4490425772965,
+    "fingerprint": [
+     0.00027775803738181376,
+     0.0005686398110692866
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 2.81
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 13,
+   "cuda": {
+    "first_call_ms": 820.9836219903082,
+    "warm_ms": [
+     498.4401371330023,
+     501.9956261385232,
+     503.92338889651,
+     500.85160904563963,
+     501.23027921654284
+    ],
+    "median_ms": 501.23027921654284,
+    "q1_ms": 499.64587308932096,
+    "q3_ms": 502.9595075175166,
+    "fingerprint": [
+     0.00018138147995873404,
+     0.00021653922336989346
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 7.12
+  },
+  {
+   "workload": "dm_noise",
+   "method": "density_matrix",
+   "qubits": 14,
+   "cuda": {
+    "first_call_ms": 2518.03166186437,
+    "warm_ms": [
+     2105.0371821038425,
+     2163.175060180947,
+     2139.4694501068443,
+     2332.669265102595,
+     2187.411362072453
+    ],
+    "median_ms": 2163.175060180947,
+    "q1_ms": 2122.2533161053434,
+    "q3_ms": 2260.040313587524,
+    "fingerprint": [
+     9.288091446525106e-08,
+     2.9515643142150645e-05
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 8.2
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 6,
+   "cuda": {
+    "first_call_ms": 505.75728015974164,
+    "warm_ms": [
+     3.36297694593668,
+     2.8244960121810436,
+     2.6215699035674334,
+     2.7206989470869303,
+     2.685857005417347
+    ],
+    "median_ms": 2.7206989470869303,
+    "q1_ms": 2.65371345449239,
+    "q3_ms": 3.0937364790588617,
+    "fingerprint": [
+     0.49684453372886844,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.16
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 7,
+   "cuda": {
+    "first_call_ms": 369.49754785746336,
+    "warm_ms": [
+     3.205670043826103,
+     2.842022106051445,
+     2.792297163978219,
+     2.7661570347845554,
+     2.714709844440222
+    ],
+    "median_ms": 2.792297163978219,
+    "q1_ms": 2.7404334396123886,
+    "q3_ms": 3.023846074938774,
+    "fingerprint": [
+     0.359512245329122,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.44
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 8,
+   "cuda": {
+    "first_call_ms": 355.55841983295977,
+    "warm_ms": [
+     3.551280125975609,
+     3.2139529939740896,
+     3.2587400637567043,
+     3.1557949259877205,
+     3.1270908657461405
+    ],
+    "median_ms": 3.2139529939740896,
+    "q1_ms": 3.1414428958669305,
+    "q3_ms": 3.4050100948661566,
+    "fingerprint": [
+     0.4563050256084036,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 2.55
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 9,
+   "cuda": {
+    "first_call_ms": 360.8574569225311,
+    "warm_ms": [
+     4.030793206766248,
+     3.6303489468991756,
+     3.6551670636981726,
+     3.680085064843297,
+     3.5761380568146706
+    ],
+    "median_ms": 3.6551670636981726,
+    "q1_ms": 3.603243501856923,
+    "q3_ms": 3.8554391358047724,
+    "fingerprint": [
+     0.31182972490992467,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 4.91
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 10,
+   "cuda": {
+    "first_call_ms": 399.30407516658306,
+    "warm_ms": [
+     5.1087369211018085,
+     4.904508823528886,
+     4.654452903196216,
+     4.603746114298701,
+     4.626210080459714
+    ],
+    "median_ms": 4.654452903196216,
+    "q1_ms": 4.614978097379208,
+    "q3_ms": 5.006622872315347,
+    "fingerprint": [
+     0.41977460833909186,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 11.33
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 11,
+   "cuda": {
+    "first_call_ms": 396.4382710400969,
+    "warm_ms": [
+     14.534126967191696,
+     14.269008068367839,
+     14.304130803793669,
+     14.278411865234375,
+     14.212562935426831
+    ],
+    "median_ms": 14.278411865234375,
+    "q1_ms": 14.240785501897335,
+    "q3_ms": 14.419128885492682,
+    "fingerprint": [
+     0.2699335879747053,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 14.43
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 12,
+   "cuda": {
+    "first_call_ms": 478.9097039029002,
+    "warm_ms": [
+     88.78360013477504,
+     88.84826698340476,
+     88.93617894500494,
+     88.90420198440552,
+     89.09905492328107
+    ],
+    "median_ms": 88.90420198440552,
+    "q1_ms": 88.8159335590899,
+    "q3_ms": 89.017616934143,
+    "fingerprint": [
+     0.3850848709197174,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 11.56
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 13,
+   "cuda": {
+    "first_call_ms": 768.0758961942047,
+    "warm_ms": [
+     382.4075870215893,
+     383.3577879704535,
+     383.25759512372315,
+     383.24091606773436,
+     383.2791931927204
+    ],
+    "median_ms": 383.25759512372315,
+    "q1_ms": 382.8242515446618,
+    "q3_ms": 383.31849058158696,
+    "fingerprint": [
+     0.23191060614857104,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 11.44
+  },
+  {
+   "workload": "dm_observable",
+   "method": "density_matrix",
+   "qubits": 14,
+   "cuda": {
+    "first_call_ms": 2026.428926968947,
+    "warm_ms": [
+     1647.5427020341158,
+     1648.112784139812,
+     1648.0974780861288,
+     1647.9818138759583,
+     1648.9033999387175
+    ],
+    "median_ms": 1648.0974780861288,
+    "q1_ms": 1647.762257955037,
+    "q3_ms": 1648.5080920392647,
+    "fingerprint": [
+     0.35116079784626963,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 10.09
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 12,
+   "cuda": {
+    "first_call_ms": 443.4763970784843,
+    "warm_ms": [
+     2.04969709739089,
+     1.7601409927010536,
+     1.674432074651122,
+     5.014444002881646,
+     13.088015140965581
+    ],
+    "median_ms": 2.04969709739089,
+    "q1_ms": 1.7172865336760879,
+    "q3_ms": 9.051229571923614,
+    "fingerprint": [
+     0.3461249257417549,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.23
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 14,
+   "cuda": {
+    "first_call_ms": 397.96185912564397,
+    "warm_ms": [
+     2.6364619843661785,
+     2.1542650647461414,
+     2.1302090026438236,
+     2.3078471422195435,
+     2.0988909527659416
+    ],
+    "median_ms": 2.1542650647461414,
+    "q1_ms": 2.1145499777048826,
+    "q3_ms": 2.472154563292861,
+    "fingerprint": [
+     0.30811243922122755,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.48
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 16,
+   "cuda": {
+    "first_call_ms": 362.1505999471992,
+    "warm_ms": [
+     2.7420008555054665,
+     2.380907069891691,
+     2.373195020481944,
+     2.2809559013694525,
+     2.2548569831997156
+    ],
+    "median_ms": 2.373195020481944,
+    "q1_ms": 2.267906442284584,
+    "q3_ms": 2.561453962698579,
+    "fingerprint": [
+     0.2704949529825813,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 3.23
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 18,
+   "cuda": {
+    "first_call_ms": 395.4160460270941,
+    "warm_ms": [
+     2.8934390284121037,
+     2.524934010580182,
+     2.496390836313367,
+     2.4539469741284847,
+     2.393055008724332
+    ],
+    "median_ms": 2.496390836313367,
+    "q1_ms": 2.4235009914264083,
+    "q3_ms": 2.709186519496143,
+    "fingerprint": [
+     0.23298717586324777,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 8.41
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 20,
+   "cuda": {
+    "first_call_ms": 385.1501371245831,
+    "warm_ms": [
+     5.201946012675762,
+     4.54035890288651,
+     3.6335329059511423,
+     3.029793966561556,
+     2.960599958896637
+    ],
+    "median_ms": 3.6335329059511423,
+    "q1_ms": 2.9951969627290964,
+    "q3_ms": 4.871152457781136,
+    "fingerprint": [
+     0.19546843647977985,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 11.85
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 22,
+   "cuda": {
+    "first_call_ms": 401.06772002764046,
+    "warm_ms": [
+     5.916891852393746,
+     5.618362920358777,
+     5.723480833694339,
+     6.319158943369985,
+     6.013207836076617
+    ],
+    "median_ms": 5.916891852393746,
+    "q1_ms": 5.670921877026558,
+    "q3_ms": 6.166183389723301,
+    "fingerprint": [
+     0.15791425405257983,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 34.65
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 24,
+   "cuda": {
+    "first_call_ms": 415.5350090004504,
+    "warm_ms": [
+     19.669307861477137,
+     19.63034993968904,
+     19.990230910480022,
+     19.958764780312777,
+     19.304057816043496
+    ],
+    "median_ms": 19.669307861477137,
+    "q1_ms": 19.467203877866268,
+    "q3_ms": 19.9744978453964,
+    "fingerprint": [
+     0.12035823022355373,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 48.05
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 26,
+   "cuda": {
+    "first_call_ms": 467.35670510679483,
+    "warm_ms": [
+     75.95372991636395,
+     76.07978000305593,
+     77.86021195352077,
+     79.56068310886621,
+     80.32550499774516
+    ],
+    "median_ms": 77.86021195352077,
+    "q1_ms": 76.01675495970994,
+    "q3_ms": 79.94309405330569,
+    "fingerprint": [
+     0.08287011980987169,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 57.3
+  },
+  {
+   "workload": "sv_observable",
+   "method": "statevector",
+   "qubits": 28,
+   "cuda": {
+    "first_call_ms": 716.7690889909863,
+    "warm_ms": [
+     349.76978693157434,
+     351.20128211565316,
+     351.48795298300683,
+     351.2414109427482,
+     351.377323968336
+    ],
+    "median_ms": 351.2414109427482,
+    "q1_ms": 350.48553452361375,
+    "q3_ms": 351.4326384756714,
+    "fingerprint": [
+     0.04554283695490408,
+     0.0
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 67.78
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 12,
+   "cuda": {
+    "first_call_ms": 386.471102014184,
+    "warm_ms": [
+     1.9879951141774654,
+     1.7957550007849932,
+     1.654221909120679,
+     1.6602310352027416,
+     1.5833049546927214
+    ],
+    "median_ms": 1.6602310352027416,
+    "q1_ms": 1.6187634319067001,
+    "q3_ms": 1.8918750574812293,
+    "fingerprint": [
+     0.007577003520209229,
+     -0.0013173976979111608
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 2.21
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 14,
+   "cuda": {
+    "first_call_ms": 438.2231819909066,
+    "warm_ms": [
+     2.3307211231440306,
+     2.14568292722106,
+     2.4289691355079412,
+     1.9949048291891813,
+     1.8925510812550783
+    ],
+    "median_ms": 2.14568292722106,
+    "q1_ms": 1.9437279552221298,
+    "q3_ms": 2.379845129325986,
+    "fingerprint": [
+     0.0072244339861493,
+     0.0113541433777886
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 2.27
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 16,
+   "cuda": {
+    "first_call_ms": 378.5596510861069,
+    "warm_ms": [
+     2.6451239828020334,
+     2.2693679202347994,
+     2.2369290236383677,
+     2.1569288801401854,
+     2.2050710394978523
+    ],
+    "median_ms": 2.2369290236383677,
+    "q1_ms": 2.180999959819019,
+    "q3_ms": 2.4572459515184164,
+    "fingerprint": [
+     -0.002671190682268141,
+     0.000846386212096413
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 4.52
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 18,
+   "cuda": {
+    "first_call_ms": 332.2818619199097,
+    "warm_ms": [
+     3.349105129018426,
+     2.519073896110058,
+     2.467887010425329,
+     2.4495588149875402,
+     2.4497502017766237
+    ],
+    "median_ms": 2.467887010425329,
+    "q1_ms": 2.449654508382082,
+    "q3_ms": 2.934089512564242,
+    "fingerprint": [
+     7.101812761772612e-05,
+     0.0037920438600522904
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 9.57
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 20,
+   "cuda": {
+    "first_call_ms": 325.94451401382685,
+    "warm_ms": [
+     5.6318428833037615,
+     21.930302027612925,
+     10.670301970094442,
+     5.778464023023844,
+     3.9069748017936945
+    ],
+    "median_ms": 5.778464023023844,
+    "q1_ms": 4.769408842548728,
+    "q3_ms": 16.300301998853683,
+    "fingerprint": [
+     -0.0013771946920739801,
+     0.001299847208047451
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 11.82
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 22,
+   "cuda": {
+    "first_call_ms": 373.7793928012252,
+    "warm_ms": [
+     12.602833099663258,
+     12.74543791078031,
+     12.71019410341978,
+     12.635682942345738,
+     12.507849838584661
+    ],
+    "median_ms": 12.635682942345738,
+    "q1_ms": 12.55534146912396,
+    "q3_ms": 12.727816007100046,
+    "fingerprint": [
+     -0.000548811890493827,
+     0.00010022364926415313
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 23.78
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 24,
+   "cuda": {
+    "first_call_ms": 459.2714619357139,
+    "warm_ms": [
+     47.62820899486542,
+     48.01633418537676,
+     49.0182931534946,
+     50.2697778865695,
+     49.94032206013799
+    ],
+    "median_ms": 49.0182931534946,
+    "q1_ms": 47.82227159012109,
+    "q3_ms": 50.105049973353744,
+    "fingerprint": [
+     -0.000337005885466599,
+     -0.0003307322111637358
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 25.24
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 26,
+   "cuda": {
+    "first_call_ms": 571.1898391600698,
+    "warm_ms": [
+     220.31417000107467,
+     195.77758596278727,
+     187.32164800167084,
+     187.14575399644673,
+     186.1662408336997
+    ],
+    "median_ms": 187.32164800167084,
+    "q1_ms": 186.65599741507322,
+    "q3_ms": 208.04587798193097,
+    "fingerprint": [
+     -3.4002851330066085e-05,
+     -0.0001715763089206283
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 28.7
+  },
+  {
+   "workload": "sv_state",
+   "method": "statevector",
+   "qubits": 28,
+   "cuda": {
+    "first_call_ms": 1434.8717601969838,
+    "warm_ms": [
+     801.948901033029,
+     856.0435499530286,
+     794.1713710315526,
+     798.7567591480911,
+     799.259572988376
+    ],
+    "median_ms": 799.259572988376,
+    "q1_ms": 796.4640650898218,
+    "q3_ms": 828.9962254930288,
+    "fingerprint": [
+     -7.110077381969573e-05,
+     -9.550994438927269e-05
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 31.23
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 6,
+   "cuda": {
+    "first_call_ms": 391.92517288029194,
+    "warm_ms": [
+     1.294268062338233,
+     0.9851031936705112,
+     0.9493888355791569,
+     0.964100006967783,
+     0.9100998286157846
+    ],
+    "median_ms": 0.964100006967783,
+    "q1_ms": 0.9297443320974708,
+    "q3_ms": 1.1396856280043721,
+    "fingerprint": [
+     -0.1373912285011504,
+     0.04900748340949253
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.11
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 7,
+   "cuda": {
+    "first_call_ms": 400.9484448470175,
+    "warm_ms": [
+     1.538675045594573,
+     1.227106899023056,
+     1.1806271504610777,
+     1.139315078034997,
+     1.1097700335085392
+    ],
+    "median_ms": 1.1806271504610777,
+    "q1_ms": 1.124542555771768,
+    "q3_ms": 1.3828909723088145,
+    "fingerprint": [
+     0.014053699175998679,
+     0.1347936853962342
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 1.14
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 8,
+   "cuda": {
+    "first_call_ms": 395.39067610166967,
+    "warm_ms": [
+     2.46647116728127,
+     1.7622020095586777,
+     1.574730034917593,
+     1.4820301439613104,
+     1.4808881096541882
+    ],
+    "median_ms": 1.574730034917593,
+    "q1_ms": 1.4814591268077493,
+    "q3_ms": 2.114336588419974,
+    "fingerprint": [
+     0.0006127508646541257,
+     -0.021926767109632324
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 2.7
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 9,
+   "cuda": {
+    "first_call_ms": 442.8024978842586,
+    "warm_ms": [
+     2.3897970095276833,
+     1.6083510126918554,
+     1.5632819849997759,
+     1.506035914644599,
+     1.4861570671200752
+    ],
+    "median_ms": 1.5632819849997759,
+    "q1_ms": 1.496096490882337,
+    "q3_ms": 1.9990740111097693,
+    "fingerprint": [
+     0.03236085823970636,
+     -0.059949464911210684
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 25.81
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 10,
+   "cuda": {
+    "first_call_ms": 397.06816291436553,
+    "warm_ms": [
+     3.920488990843296,
+     2.389164874330163,
+     2.344558946788311,
+     2.4049589410424232,
+     2.442004857584834
+    ],
+    "median_ms": 2.4049589410424232,
+    "q1_ms": 2.366861910559237,
+    "q3_ms": 3.181246924214065,
+    "fingerprint": [
+     -0.04589840441214653,
+     -0.0015403271898606612
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 23.04
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 11,
+   "cuda": {
+    "first_call_ms": 395.8834479562938,
+    "warm_ms": [
+     10.24633995257318,
+     9.682790841907263,
+     10.00641891732812,
+     9.848179994150996,
+     10.016804095357656
+    ],
+    "median_ms": 10.00641891732812,
+    "q1_ms": 9.76548541802913,
+    "q3_ms": 10.131572023965418,
+    "fingerprint": [
+     -0.04797621809684884,
+     -0.0025772980056071124
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 17.87
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 12,
+   "cuda": {
+    "first_call_ms": 435.00056699849665,
+    "warm_ms": [
+     51.517649088054895,
+     49.406212056055665,
+     49.15034701116383,
+     48.98807196877897,
+     49.80511195026338
+    ],
+    "median_ms": 49.406212056055665,
+    "q1_ms": 49.0692094899714,
+    "q3_ms": 50.66138051915914,
+    "fingerprint": [
+     -0.014466313693454374,
+     0.007017692492793045
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 12.64
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 13,
+   "cuda": {
+    "first_call_ms": 602.0435749087483,
+    "warm_ms": [
+     204.11699987016618,
+     204.59738187491894,
+     200.89215994812548,
+     212.1632748749107,
+     206.32028090767562
+    ],
+    "median_ms": 204.59738187491894,
+    "q1_ms": 202.50457990914583,
+    "q3_ms": 209.24177789129317,
+    "fingerprint": [
+     -0.0014513925003629784,
+     -0.0162702077773223
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 11.46
+  },
+  {
+   "workload": "unitary",
+   "method": "unitary",
+   "qubits": 14,
+   "cuda": {
+    "first_call_ms": 1290.463751880452,
+    "warm_ms": [
+     890.2370999567211,
+     873.7818321678787,
+     832.1347439195961,
+     847.1420370042324,
+     1085.350861074403
+    ],
+    "median_ms": 873.7818321678787,
+    "q1_ms": 839.6383904619142,
+    "q3_ms": 987.793980515562,
+    "fingerprint": [
+     -0.00533611482175537,
+     -0.0009131454212877024
+    ]
+   },
+   "verified_against": "numba, reference file",
+   "speedup_reference_cpu_over_gpu": 10.26
+  }
+ ]
+}
