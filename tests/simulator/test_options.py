@@ -51,6 +51,8 @@ from fatqat.simulator import Simulator
             "max_workers=1 contradicts",
         ),
         ({"fusion": None}, "fusion must be a bool"),
+        ({"simplify": None}, "simplify must be a bool"),
+        ({"simplify": 1}, "simplify must be a bool"),
     ],
 )
 def test_public_execution_configuration_rejects_invalid_values(config, match):

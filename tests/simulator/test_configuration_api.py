@@ -93,6 +93,7 @@ def test_simulation_and_result_configuration_are_separate():
         "kernel_parallelism": "serial",
         "max_workers": None,
         "fusion": False,
+        "simplify": False,
     }
 
 

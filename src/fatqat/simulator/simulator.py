@@ -6,8 +6,10 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 
 from __future__ import annotations
 
+import copy
 import warnings
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
@@ -94,6 +96,7 @@ from ._execution_policy import (
     _should_probe_compiled_multi_shot,
     _validate_execution_controls,
 )
+from .._backends.simplify import simplify_plan
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
 from .._backends.steps import (
     ApplyChannelStep,
@@ -320,7 +323,7 @@ class Simulator:
         method: str = "statevector",
         *,
         runtime: str = "numba",
-        device_id: int | None = None,
+        device_id: int | Sequence[int] | None = None,
         implementation_map: MatrixImplementationMap | None = None,
         noise: NoiseModel | None = None,
         channel_implementation_map: ChannelImplementationMap | None = None,
@@ -345,9 +348,11 @@ class Simulator:
                 Runtimes are not promised to be bit-identical.
             device_id: Nonnegative CUDA device ordinal among the process's
                 visible GPUs. ``None`` selects device 0 for ``runtime="cuda"``.
-                CPU runtimes require ``None``. CuPy and device availability
-                are checked when execution starts; failures produce an ERROR
-                Job whose ``result()`` re-raises the error.
+                A tuple of distinct ordinals spreads ``run_sweep`` rows across
+                those devices, one worker thread per device; ``run()`` uses
+                the first. CPU runtimes require ``None``. CuPy and device
+                availability are checked when execution starts; failures
+                produce an ERROR Job whose ``result()`` re-raises the error.
             implementation_map: Matrix rules for supported operations.
                 ``None`` uses ``default_matrix_implementation_map()``.
             noise: Noise model applied to every run. ``None`` means ideal
@@ -381,6 +386,25 @@ class Simulator:
             raise BackendValidationError(
                 "device_id is only supported by runtime='cuda'"
             )
+        device_ids: tuple = ()
+        if normalized_runtime == "cuda":
+            device_ids = (
+                tuple(device_id)
+                if isinstance(device_id, (tuple, list))
+                else (0 if device_id is None else device_id,)
+            )
+            # Every ordinal is checked now: engines for the later devices are
+            # only built when a sweep first runs.
+            if (
+                not device_ids
+                or len(set(device_ids)) != len(device_ids)
+                or any(type(d) is not int or d < 0 for d in device_ids)
+            ):
+                raise BackendValidationError(
+                    "device_id must be one ordinal or a non-empty tuple of "
+                    f"distinct ordinals, got {device_id!r}"
+                )
+        self._device_ids = device_ids
         # The single dispatch point; the canonical method name doubles as the
         # native result field name.
         spec = _METHOD_SPECS[normalized]
@@ -428,11 +452,12 @@ class Simulator:
         # reused, while every execution allocates or resets evolving state.
         # A backend instance is not safe for concurrent run() calls.
         if normalized_runtime == "cuda":
-            self._engine = self._engine_cls(
-                device_id=0 if device_id is None else device_id
-            )
+            # Further devices get their engines when a sweep first uses them,
+            # and keep them, like the first, for later sweeps.
+            self._engine = self._engine_cls(device_id=device_ids[0])
         else:
             self._engine = self._engine_cls()
+        self._sweep_engines: dict[int, MatrixEngine] = {}
 
     @property
     def method(self) -> str:
@@ -694,6 +719,15 @@ class Simulator:
                 - ``"fusion"`` (``bool``, default ``False``): Whether to
                   combine compatible adjacent operations. ``True`` requires
                   Numba with ``density_matrix``, ``unitary``, or ``superop``.
+                - ``"simplify"`` (``bool``, default ``False``): Whether to
+                  merge and cancel gates that never round (entries ``0``,
+                  ``+-1``, ``+-i``, one per row and column, such as Paulis,
+                  ``S``, ``CX`` and ``SWAP``) before execution, for example
+                  ``X`` then ``X``, or ``S`` then ``S`` into ``Z``. Other gates
+                  are never merged or moved; channels, measurements, resets,
+                  loss and reloads are never crossed. Numba and CUDA results
+                  have the same values; NumPy's may differ in the last bit.
+                  Not supported by ``run_sweep``.
 
                 Unknown or incompatible entries are rejected.
             result_config: Optional output requests. Accepted keys are:
@@ -875,6 +909,8 @@ class Simulator:
         )
         template = prepared.plan
         assert isinstance(template, planning._ParametricPlan)
+        if len(self._device_ids) > 1 and len(rows) > 1:
+            return self._run_sweep_on_devices(template, rows, param_order, prepared)
         results: list[Result] = []
         for row in rows:
             theta = tuple(row[parameter] for parameter in param_order)
@@ -883,6 +919,57 @@ class Simulator:
             point_plan = template.materialize(theta)
             try:
                 results.append(self._execute_plan(point_plan, prepared).result())
+            except Exception as exc:  # execution-stage failure
+                return Job(status="ERROR", error=exc)
+        return Job(status="DONE", result=results)
+
+    def _run_sweep_on_devices(
+        self,
+        template: planning._ParametricPlan,
+        rows: Sequence[Mapping[Parameter, Any]],
+        param_order: tuple[Parameter, ...],
+        prepared: _PreparedRun,
+    ) -> Job[list[Result]]:
+        """Run sweep rows on every configured device, one thread per device.
+
+        Rows are materialized up front, so binding and rule failures still
+        raise directly before any execution. Each device runs its own engine
+        on rows ``k, k + D, k + 2D, ...`` in order; a backend clone carries
+        that engine, since a backend instance is not safe for concurrent runs
+        on one engine. Results return in input order; if any row fails, the
+        job carries the earliest failing row's error, as in the serial loop,
+        although rows after it on other devices may already have run.
+        """
+        plans = [
+            template.materialize(tuple(row[parameter] for parameter in param_order))
+            for row in rows
+        ]
+        devices = self._device_ids
+        clones = []
+        for index, device in enumerate(devices):
+            clone = copy.copy(self)
+            if index:
+                if device not in self._sweep_engines:
+                    self._sweep_engines[device] = self._engine_cls(device_id=device)
+                clone._engine = self._sweep_engines[device]
+            clones.append(clone)
+
+        def run_device(index: int) -> list[tuple[int, Job[Result]]]:
+            clone = clones[index]
+            return [
+                (row, clone._execute_plan(plans[row], prepared))
+                for row in range(index, len(plans), len(devices))
+            ]
+
+        jobs: list[Job[Result] | None] = [None] * len(plans)
+        with ThreadPoolExecutor(max_workers=len(devices)) as pool:
+            for finished in pool.map(run_device, range(len(devices))):
+                for row, job in finished:
+                    jobs[row] = job
+        results: list[Result] = []
+        for job in jobs:
+            try:
+                results.append(job.result())
             except Exception as exc:  # execution-stage failure
                 return Job(status="ERROR", error=exc)
         return Job(status="DONE", result=results)
@@ -1006,7 +1093,17 @@ class Simulator:
             plan, facts, initial_occupied = self._prepare_program(
                 program, context=lowering
             )
+            if simulation.simplify:
+                plan = simplify_plan(plan, engine_allocation.system_dims)
+                facts, initial_occupied = self._analyze_lowered_plan(plan)
         else:
+            if simulation.simplify:
+                # A sweep lowers once and materializes per point; simplifying
+                # each point plan is not implemented, and silently running
+                # unsimplified would misreport what was executed.
+                raise BackendValidationError(
+                    "simplify=True is not supported by parameter sweeps"
+                )
             plan, facts, initial_occupied = self._prepare_parametric_program(
                 program, context=lowering, param_order=param_order
             )

@@ -238,5 +238,6 @@ def test_metadata_echoes_only_the_requested_public_configuration():
         "kernel_parallelism": "auto",
         "max_workers": None,
         "fusion": False,
+        "simplify": False,
     }
     assert "execution" not in result.metadata
