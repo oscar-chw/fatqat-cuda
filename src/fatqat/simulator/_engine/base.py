@@ -21,6 +21,12 @@ def _shot_seed_sequences(
     return np.random.SeedSequence(seed).spawn(n_iters)
 
 
+# Per-step caches keep each step alive to pin its id; a long-lived engine (a
+# GPU worker, a notebook session) sees new steps on every run, so past this
+# many entries a cache starts over rather than growing without bound.
+_TILE_FORM_CACHE_LIMIT = 4096
+
+
 @dataclass(frozen=True)
 class _TileForm:
     """How a qubit gate occupies a tile: only its *active* targets need tile bits.
@@ -144,7 +150,7 @@ class _TileQueue:
 
     def _tile_form_of(self, step: ApplyMatrixStep) -> _TileForm | None:
         """`_tile_form` of a step, once per step (pinned, so ids never alias)."""
-        if self._tile_forms is None:
+        if self._tile_forms is None or len(self._tile_forms) >= _TILE_FORM_CACHE_LIMIT:
             self._tile_forms = {}
         cached = self._tile_forms.get(id(step))
         if cached is None or cached[0] is not step:

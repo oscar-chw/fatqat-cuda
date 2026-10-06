@@ -399,3 +399,52 @@ def test_the_largest_group_goes_on_so_a_tight_budget_replays_few_shots(
     assert sum(replayed) < 100
     got, expected = _both(monkeypatch, run)
     assert got == expected
+
+
+def test_a_budget_below_one_state_holds_nothing(monkeypatch, caplog):
+    # A group too big for the budget runs shot by shot at once, as the loop
+    # before branching did: no state is ever held for a waiting group.
+    import logging  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.setattr(branching, "_BRANCH_MEMORY_BYTES", 1)
+    monkeypatch.setattr(branching, "_BRANCH_STATES", 0)
+    program, noise = _qubit_program(np.random.default_rng(12))
+    backend = Simulator("statevector", runtime="numpy", noise=noise)
+
+    def run():
+        return (
+            backend.run(program, shots=200, simulation_config={"seed": 2, **_SERIAL})
+            .result()
+            .get_counts()
+        )
+
+    with caplog.at_level(logging.DEBUG, logger="fatqat"):
+        run()
+    summaries = [m for m in caplog.messages if m.startswith("shot branching")]
+    assert summaries and all("peak 0 of 1 bytes" in m for m in summaries)
+    got, expected = _both(monkeypatch, run)
+    assert got == expected
+
+
+def test_unconditioned_steps_skip_the_per_shot_scan(monkeypatch):
+    # With every subsystem occupied all run, an unconditioned step applies to
+    # every shot; scanning each shot at each step cost most of the run time.
+    scanned = []
+    shipped = engine_np._condition_matches
+
+    def condition_matches(condition, clbits):
+        scanned.append(condition)
+        return shipped(condition, clbits)
+
+    monkeypatch.setattr(engine_np, "_condition_matches", condition_matches)
+    noise = NoiseModel()
+    noise.add(Depolarizing(p=0.05), operation=ops.H)
+    program = fq.Program(3, 3)
+    for _ in range(20):
+        for q in range(3):
+            program.add(ops.H, q)
+    program.measure_all()
+    Simulator("statevector", runtime="numpy", noise=noise).run(
+        program, shots=200, simulation_config={"seed": 1, **_SERIAL}
+    ).result()
+    assert not [c for c in scanned if c is None]

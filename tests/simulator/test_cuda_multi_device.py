@@ -15,7 +15,11 @@ import pytest
 
 import fatqat as fq
 import fatqat.operations as ops
-from fatqat.errors import BackendValidationError, MatrixImplementationError
+from fatqat.errors import (
+    BackendExecutionError,
+    BackendValidationError,
+    MatrixImplementationError,
+)
 from fatqat.parameters import Parameter
 from fatqat.noise import AmplitudeDamping, Depolarizing, NoiseModel
 from fatqat.simulator import Simulator
@@ -81,8 +85,11 @@ def test_all_devices_with_none_visible_fail_the_job(count):
     program.measure(0, 0)
     job = backend.run(program, shots=4)
     assert job.status == "ERROR"
-    with pytest.raises(BackendValidationError, match="no CUDA device"):
+    with pytest.raises(BackendValidationError, match="no CUDA device") as caught:
         job.result()
+    if count is None:  # the driver's own message is kept, not hidden
+        assert "cudaErrorNoDevice" in str(caught.value)
+        assert isinstance(caught.value.__cause__, _FakeCudaRuntimeError)
 
 
 def _device_count():
@@ -496,8 +503,11 @@ def test_a_crashed_gpu_worker_fails_its_run_and_the_next_run_recovers(
     spread = _fake_devices(3, noise)
     monkeypatch.setenv("FATQAT_FAKE_CRASH_DEVICE", "1")
     job = spread.run(program, **options)
-    with pytest.raises(RuntimeError, match="GPU worker for CUDA device 1 exited"):
+    with pytest.raises(
+        BackendExecutionError, match="GPU worker for CUDA device 1 exited"
+    ) as caught:
         job.result()
+    assert caught.value.__cause__ is not None  # the pool's own error, chained
     # A fresh worker replaces the dead one; the crash flag is gone by then.
     monkeypatch.delenv("FATQAT_FAKE_CRASH_DEVICE")
     assert spread.run(program, **options).result().get_counts() == expected
@@ -532,3 +542,40 @@ def test_spreading_and_device_choice_are_logged(device_log, caplog):
     assert any(
         m.startswith("shot branching, _FakeDeviceSV: 10 shots") for m in caplog.messages
     )
+
+
+def test_threads_starting_runs_at_once_share_one_worker_per_device(monkeypatch):
+    # Without the lock, threads racing on first use each started a worker
+    # process (and, on a GPU, a CUDA context) for the same device.
+    import threading
+    import time
+
+    from fatqat.simulator._engine import parallel
+
+    monkeypatch.setattr(parallel, "_DEVICE_EXECUTORS", {})
+    real_get = dict.get
+    barrier = threading.Barrier(8)
+
+    class Slow(dict):
+        def get(self, key, default=None):  # widen the race window
+            value = real_get(self, key, default)
+            time.sleep(0.01)
+            return value
+
+    monkeypatch.setattr(parallel, "_DEVICE_EXECUTORS", Slow())
+    got = []
+
+    def start():
+        barrier.wait()
+        got.append(parallel._device_executor(1))
+
+    threads = [threading.Thread(target=start) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    try:
+        assert len({id(executor) for executor in got}) == 1
+    finally:
+        for executor in {id(e): e for e in got}.values():
+            executor.shutdown(wait=True)

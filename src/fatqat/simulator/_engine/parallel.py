@@ -11,6 +11,7 @@ from concurrent.futures.process import BrokenProcessPool
 from itertools import repeat
 import logging
 import os
+import threading
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -20,6 +21,7 @@ from .._execution_contract import (
     _ExecutionPolicy as ExecutionPolicy,
 )
 from .._execution_policy import _process_child_policy
+from ...errors import BackendExecutionError
 from .base import _shot_seed_sequences
 
 _LOG = logging.getLogger(__name__)
@@ -121,6 +123,7 @@ _DEVICE_ENGINES: dict = {}
 # Parent side: one single-worker executor per further device, so each device
 # keeps one worker and each worker one device (one CUDA context apiece).
 _DEVICE_EXECUTORS: dict = {}
+_DEVICE_LOCK = threading.Lock()
 # Idle GPU workers exit after this many seconds, releasing their contexts.
 _DEVICE_WORKER_IDLE_SECONDS = 300
 _SERIAL = ExecutionPolicy(
@@ -152,17 +155,50 @@ def _run_device_batch(engine_cls, device, context, payload, seed_batch):
 
 
 def _device_executor(device: int):
+    """The single-worker executor for ``device``, started on first use."""
     from loky import ProcessPoolExecutor  # pylint: disable=import-outside-toplevel
 
-    executor = _DEVICE_EXECUTORS.get(device)
-    if executor is None:
-        _LOG.debug("starting the GPU worker for device %d", device)
-        executor = _DEVICE_EXECUTORS[device] = ProcessPoolExecutor(
-            max_workers=1,
-            timeout=_DEVICE_WORKER_IDLE_SECONDS,
-            env={name: "1" for name in _WORKER_THREAD_VARS},
-        )
-    return executor
+    # Under the lock, so threads starting runs at once share one worker per
+    # device instead of each starting its own (and its own CUDA context).
+    with _DEVICE_LOCK:
+        executor = _DEVICE_EXECUTORS.get(device)
+        if executor is None:
+            _LOG.debug("starting the GPU worker for device %d", device)
+            executor = _DEVICE_EXECUTORS[device] = ProcessPoolExecutor(
+                max_workers=1,
+                timeout=_DEVICE_WORKER_IDLE_SECONDS,
+                env={name: "1" for name in _WORKER_THREAD_VARS},
+            )
+        return executor
+
+
+def _forget_executor(device: int, executor) -> None:
+    """Drop a dead worker's executor, unless another thread already did."""
+    with _DEVICE_LOCK:
+        if _DEVICE_EXECUTORS.get(device) is executor:
+            del _DEVICE_EXECUTORS[device]
+
+
+def _submit(device, *args):
+    """Submit one batch to ``device``'s worker, replacing it once if it died.
+
+    Returns the executor with the future, so a later failure drops exactly
+    the worker that ran it.
+    """
+    executor = _device_executor(device)
+    try:
+        return executor, executor.submit(_run_device_batch, *args)
+    except BrokenProcessPool:  # died since its last run: start a fresh one
+        _LOG.info("the GPU worker for device %d had exited; starting another", device)
+        _forget_executor(device, executor)
+    executor = _device_executor(device)
+    try:
+        return executor, executor.submit(_run_device_batch, *args)
+    except BrokenProcessPool as error:
+        _forget_executor(device, executor)
+        raise BackendExecutionError(
+            f"could not start a GPU worker for CUDA device {device}"
+        ) from error
 
 
 def _run_shots_on_device_workers(
@@ -176,48 +212,39 @@ def _run_shots_on_device_workers(
     starts workers as fresh interpreters, so a CUDA context is never forked
     and an unguarded user script is not re-run. Batches come back in order.
 
-    Every batch finishes before this returns or raises, so none outlives the
-    run. On failure the first device's error is raised if it had one, else
-    the first failing device's in device order, with a note naming the
-    device. A worker that died (a crash, or an out-of-memory kill) is
-    replaced on the next run.
+    Every submitted batch finishes before this returns or raises, so none
+    outlives the run. On failure the first device's error is raised if it had
+    one, else the first failing device's in device order, with a note naming
+    the device. A worker that died (a crash, or an out-of-memory kill) fails
+    its run with `BackendExecutionError` and is replaced on the next run.
     """
     futures = []
-    for device, batch in zip(devices[1:], batches[1:]):
-        try:
-            future = _device_executor(device).submit(
-                _run_device_batch, engine_cls, device, context, payload, batch
-            )
-        except BrokenProcessPool:  # died since its last run: start a fresh one
-            _LOG.info(
-                "the GPU worker for device %d had exited; starting another", device
-            )
-            _DEVICE_EXECUTORS.pop(device, None)
-            future = _device_executor(device).submit(
-                _run_device_batch, engine_cls, device, context, payload, batch
-            )
-        futures.append((device, future))
     local = local_error = None
     try:
-        local = run_local(batches[0])
-    except Exception as error:  # pylint: disable=broad-except  # re-raised below
-        local_error = error
-        error.add_note(f"in the shot batch for CUDA device {devices[0]}")
-    wait([future for _, future in futures])
+        for device, batch in zip(devices[1:], batches[1:]):
+            futures.append(
+                (device, *_submit(device, engine_cls, device, context, payload, batch))
+            )
+        try:
+            local = run_local(batches[0])
+        except Exception as error:  # pylint: disable=broad-except  # re-raised below
+            error.add_note(f"in the shot batch for CUDA device {devices[0]}")
+            local_error = error
+    finally:
+        wait([future for _, _, future in futures])
     remote, errors = [], []
-    for device, future in futures:
+    for device, executor, future in futures:
         try:
             remote.append(future.result())
         except BrokenProcessPool as error:
-            _DEVICE_EXECUTORS.pop(device, None)
-            errors.append(
-                RuntimeError(
-                    f"the GPU worker for CUDA device {device} exited while running "
-                    "its shot batch (a crash or an out-of-memory kill); the next "
-                    "run starts a new worker"
-                )
+            _forget_executor(device, executor)
+            failure = BackendExecutionError(
+                f"the GPU worker for CUDA device {device} exited while running "
+                "its shot batch (a crash or an out-of-memory kill); the next run "
+                "starts a new worker"
             )
-            errors[-1].__cause__ = error
+            failure.__cause__ = error
+            errors.append(failure)
         except Exception as error:  # pylint: disable=broad-except  # re-raised below
             error.add_note(f"in the GPU worker for CUDA device {device}")
             errors.append(error)

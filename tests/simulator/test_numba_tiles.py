@@ -293,3 +293,22 @@ def test_numba_operator_engines_refuse_a_measurement_like_numpys(name):
     engine = getattr(engine_nb, name)()
     with pytest.raises(NotImplementedError, match="cannot represent a measurement"):
         engine.collapse((0,), np.random.default_rng(0))
+
+
+def test_per_step_caches_stay_bounded_across_many_plans(monkeypatch):
+    # A long-lived engine (a GPU worker, a notebook kernel) sees new plan
+    # steps on every run; its per-step caches must not keep all of them.
+    from fatqat.simulator._engine import base, nb as engine_nb
+
+    monkeypatch.setattr(base, "_TILE_FORM_CACHE_LIMIT", 50)
+    monkeypatch.setattr(engine_nb, "_STRUCTURE_CACHE_LIMIT", 50)
+    engine = engine_nb.NumbaSVEngine()
+    rng = np.random.default_rng(3)
+    n = 13
+    for _ in range(30):
+        engine.initialize((2,) * n)
+        for step in _random_steps(rng, n, 20) + _insular_steps(rng, n, 20):
+            engine.apply(step)
+        np.asarray(engine.state)  # flush the tile queue
+    assert len(engine._tile_forms or {}) <= 50
+    assert len(engine._structure_cache) <= 50

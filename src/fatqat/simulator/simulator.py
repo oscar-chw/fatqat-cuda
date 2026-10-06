@@ -63,6 +63,7 @@ from ..result import (
 )
 from ._engine.base import MatrixEngine, _shot_seed_sequences
 from ._engine.parallel import (
+    _SERIAL as _SERIAL_SHOTS,
     _run_shots_in_processes,
     _run_shots_on_device_workers,
     _split_into_batches,
@@ -349,7 +350,7 @@ class Simulator:
                 every method. ``"cuda"`` executes all four methods on an
                 NVIDIA GPU using complex128 values. Statevectors and density
                 matrices also support channels, reset, intermediate measurement
-                and feedforward, with dynamic shots executed serially; each
+                and feedforward, run per shot with shot branching; each
                 statevector shot draws from its own seed stream as the CPU
                 engines do. Operator
                 methods retain their usual restrictions. CUDA rejects CPU
@@ -358,10 +359,11 @@ class Simulator:
             device_id: Nonnegative CUDA device ordinal among the process's
                 visible GPUs. ``None`` selects device 0 for ``runtime="cuda"``.
                 A tuple (or list) of distinct ordinals uses those devices,
-                and ``"all"`` every visible one, with one worker thread per
-                device: ``run_sweep`` spreads its rows across them, and a run
-                of independent shots (trajectories) spreads its shots, in
-                order, so counts equal a one-device run with the same seed.
+                and ``"all"`` every visible one: ``run_sweep`` spreads its
+                rows across them (a thread per device), and a run of
+                independent shots (trajectories) spreads its shots, in order,
+                over a worker process per further device, so counts equal a
+                one-device run with the same seed on GPUs of the same model.
                 Anything else runs on the first device. CPU runtimes require
                 ``None``. CuPy and device
                 availability are checked when execution starts; failures
@@ -746,7 +748,7 @@ class Simulator:
                   are computed exactly, so ``X`` then ``X`` cancels, ``S``
                   then ``S`` becomes ``Z``, and ``H X H`` becomes ``Z``. A run
                   is replaced only by a product that rounds no more, so the
-                  result is at least as close to the ideal circuit; rewrites
+                  result is closer to the ideal circuit on average; rewrites
                   among unit gates leave Numba and CUDA values unchanged.
                   From the all-zero start, gates that act as the identity on
                   subsystems still in a known basis state are dropped.
@@ -1913,8 +1915,10 @@ class Simulator:
             runtime = self._engine._cp.cuda.runtime
             try:
                 count = runtime.getDeviceCount()
-            except runtime.CUDARuntimeError:  # no driver, or no device
-                count = 0
+            except runtime.CUDARuntimeError as error:  # no driver, or no device
+                raise BackendValidationError(
+                    f"device_id='all' found no CUDA device: {error}"
+                ) from error
             if count == 0:
                 raise BackendValidationError("device_id='all' found no CUDA device")
             self._device_ids = tuple(range(count))
@@ -1951,22 +1955,15 @@ class Simulator:
             devices[: len(batches)],
             [len(batch) for batch in batches],
         )
-        # The policy a worker runs under: each batch is one serial loop.
-        serial = _ExecutionPolicy(
-            shot_strategy="serial",
-            kernel_strategy="serial",
-            worker_limit=1,
-            fusion=False,
-            use_compiled_multi_shot_kernel=False,
-        )
         snapshots = _run_shots_on_device_workers(
             self._engine_cls,
             devices,
             context,
             payload,
             batches,
+            # Each batch is one serial loop, as in a GPU worker.
             lambda seeds: self._engine.execute_shot_batch(
-                context, payload, seeds, serial
+                context, payload, seeds, _SERIAL_SHOTS
             ),
         )
         rows = np.asarray(snapshots, dtype=int).reshape(

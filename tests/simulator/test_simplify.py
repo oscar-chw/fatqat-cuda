@@ -734,3 +734,63 @@ def test_rounding_gates_never_change_width_class():
     ccrz = _gate(np.diag(np.r_[np.ones(6), np.diag(_rz(0.3))]), 0, 1, 2)
     plan = (_gate(_X, 0), _gate(_H, 1), ccrz)
     assert simplify_plan(plan, (2, 2, 2), zero_start=True)[-1] is ccrz
+
+
+def _exact_matmul(a, b):
+    """The Z[w] product of two coefficient arrays in Python integers."""
+    from fatqat._backends.simplify import (
+        _SHIFT,
+        _SIGN,
+    )  # pylint: disable=import-outside-toplevel
+
+    rows, inner, columns = a.shape[0], a.shape[1], b.shape[1]
+    out = np.zeros((rows, columns, 4), dtype=object)
+    for r in range(rows):
+        for c in range(columns):
+            for m in range(inner):
+                for i in range(4):
+                    for j in range(4):
+                        out[r, c, j] += (
+                            int(a[r, m, i])
+                            * int(_SIGN[i, j])
+                            * int(b[m, c, _SHIFT[i, j]])
+                        )
+    return out
+
+
+@pytest.mark.parametrize("bits", [20, 30, 40, 50, 60])
+def test_exact_products_never_overflow_silently(bits):
+    # Entries near the merge limit can multiply past int64. Every product
+    # returned must equal the exact integer one; one that cannot be computed
+    # exactly is refused (None), never wrapped.
+
+    rng = np.random.default_rng(bits)
+    high = 1 << bits
+    for size in (2, 4, 16):
+        a = rng.integers(-high, high, size=(size, size, 4), dtype=np.int64)
+        b = rng.integers(-high, high, size=(size, size, 4), dtype=np.int64)
+        got = _matmul(a, b)
+        if got is None:
+            assert bits > 20, "small entries must never be refused"
+        else:
+            assert np.array_equal(got.astype(object), _exact_matmul(a, b))
+
+
+def test_deep_clifford_t_runs_simplify_exactly():
+    # Alternating H and T grow the numerators fast; the merge must stop
+    # before they overflow, and the result stays the circuit's own.
+    program = fq.Program(2)
+    for _ in range(60):
+        for q in range(2):
+            program.add(ops.H, q)
+            program.add(ops.T, q)
+    program.add(ops.CX, (0, 1))
+    request = {"counts": False, "final_state": True}
+    plain, simple = (
+        Simulator("statevector", runtime="numpy")
+        .run(program, shots=0, result_config=request, simulation_config={"simplify": s})
+        .result()
+        .get_statevector()
+        for s in (False, True)
+    )
+    np.testing.assert_allclose(simple, plain, rtol=0, atol=1e-12)

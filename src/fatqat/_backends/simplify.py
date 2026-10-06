@@ -70,9 +70,12 @@ from .steps import ApplyMatrixStep, BuiltinKernelKey, LossStep, PutStep
 # ``_normal`` keeps k minimal, which makes the representation unique, so
 # equality of matrices is equality of arrays.
 
-# Numerators stay far below int64 overflow; longer non-reducing products
-# (which no gate set used here produces in practice) are simply not merged.
+# A merged gate's numerators may reach this; a product whose numerators grow
+# past it is not merged. `_matmul` separately refuses any product that could
+# overflow int64 while it is being computed.
 _MAX_NUMERATOR = 1 << 40
+# Exact products are computed in int64 only when every sum provably fits.
+_INT64_SAFE = 1 << 62
 _MAX_EXACT_SUBSYSTEMS = 4
 _MAX_SCALED_SUBSYSTEMS = 2
 # Entries one gate may walk back across, so a long run of commuting gates
@@ -92,9 +95,18 @@ _SIGN = np.array(
 )
 
 
-def _matmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Exact product, as one integer matrix product of coefficient blocks."""
+def _matmul(a: np.ndarray, b: np.ndarray) -> np.ndarray | None:
+    """Exact product, as one integer matrix product of coefficient blocks.
+
+    None when the product might not fit in int64: each output coefficient
+    sums 4 * inner products of one entry of each, so the bound is checked in
+    Python integers first, never by multiplying and hoping.
+    """
     rows, inner, columns = a.shape[0], a.shape[1], b.shape[1]
+    largest_a = int(np.abs(a).max(initial=0))
+    largest_b = int(np.abs(b).max(initial=0))
+    if largest_a * largest_b * 4 * inner >= _INT64_SAFE:
+        return None
     blocks = b[..., _SHIFT] * _SIGN  # (inner, columns, i, j)
     right = blocks.transpose(0, 2, 1, 3).reshape(4 * inner, 4 * columns)
     return (a.reshape(rows, 4 * inner) @ right).reshape(rows, columns, 4)
@@ -472,11 +484,20 @@ class _Merger:
                 near_second = _approximate(second, second_k)
                 # Most pairs do not commute, and floating point shows it at
                 # once; only a pair that might is decided exactly.
-                commutes = np.abs(
-                    near_first @ near_second - near_second @ near_first
-                ).max() < 1e-9 and np.array_equal(
-                    _matmul(first, second), _matmul(second, first)
-                )
+                # A product too large to compute exactly decides "do not
+                # commute": never moving a gate is always safe.
+                commutes = False
+                if (
+                    np.abs(near_first @ near_second - near_second @ near_first).max()
+                    < 1e-9
+                ):
+                    forward = _matmul(first, second)
+                    backward = _matmul(second, first)
+                    commutes = (
+                        forward is not None
+                        and backward is not None
+                        and np.array_equal(forward, backward)
+                    )
             self.commute_cache[key] = commutes
         return self.commute_cache[key]
 
@@ -502,12 +523,12 @@ class _Merger:
                 scaled = _scaled_product(after, after_k, before, before_k)
                 product = None if scaled is None else self._intern_scaled(scaled)
             else:
-                num, k = _normal(_matmul(after, before), before_k + after_k)
-                product = (
-                    None
-                    if np.abs(num).max(initial=0) > _MAX_NUMERATOR
-                    else self._intern(num, k)
-                )
+                exact = _matmul(after, before)
+                product = None
+                if exact is not None:  # else too large to compute: not merged
+                    num, k = _normal(exact, before_k + after_k)
+                    if np.abs(num).max(initial=0) <= _MAX_NUMERATOR:
+                        product = self._intern(num, k)
             self.product_cache[key] = product
         return self.product_cache[key]
 

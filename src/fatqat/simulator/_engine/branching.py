@@ -98,6 +98,11 @@ def _run_branched(
             for i, seed in enumerate(chunk)
         ]
         run = _Branching(engine, plan, len(shots))
+        # Every shot holds every subsystem for the whole run unless the run
+        # starts some unoccupied or loses and reloads them (the atom path).
+        run.fully_occupied = initial_occupied is None and not any(
+            isinstance(step, (LossStep, PutStep)) for step in plan
+        )
         run.budget = _budget(engine)
         run.groups.append((engine.state, None, shots, 0))
         while run.groups:
@@ -152,6 +157,7 @@ class _Branching:
         self.snapshots: list = [None] * n_shots
         self.groups: list = []
         self.stochastic = engine.state_semantics == "sv"
+        self.fully_occupied = False
         # id(shared) -> [pending groups using it, its bytes]; and their total.
         self.held: dict = {}
         self.held_bytes = 0
@@ -206,7 +212,7 @@ class _Branching:
         entry = self.held.get(id(shared))
         if entry is None:
             size = _nbytes(shared)
-            if self.held and self.held_bytes + size > self.budget:
+            if self.held_bytes + size > self.budget:  # strict, even for the first
                 current = self.engine.state
                 self._enter(shared, derive)
                 self._replay(self.plan[position:], shots)
@@ -231,6 +237,8 @@ class _Branching:
 
     def _split_inactive(self, shots, targets, condition):
         """Shots the step applies to, and a parked part for the rest, if any."""
+        if condition is None and self.fully_occupied:
+            return shots, None  # it applies to every shot: nothing to scan
         active, inactive = [], []
         for shot in shots:
             applies = all(

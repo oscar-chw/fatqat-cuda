@@ -136,6 +136,8 @@ from .np import (
 # changes only the active mask, so policy ceilings clamp to this configured
 # capacity rather than to whichever smaller mask the caller currently uses.
 _MAX_THREADS = int(numba_config.NUMBA_NUM_THREADS)
+# As base._TILE_FORM_CACHE_LIMIT, for the per-step structure cache.
+_STRUCTURE_CACHE_LIMIT = 4096
 # A coset walk goes parallel only once each worker thread would get at least
 # this many amplitudes of work; below that the parallel-region launch/sync cost
 # outweighs the memory-bandwidth-bound work it saves. Expressed per-thread so
@@ -2066,6 +2068,8 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
         values = np.empty(d, dtype=np.complex128)
         code = int(_classify_matrix(form.matrix, columns, values))
         resolved = (code, columns, values)
+        if len(self._structure_cache) >= _STRUCTURE_CACHE_LIMIT:
+            self._structure_cache.clear()
         self._structure_cache[("residual", id(step))] = (step, resolved)
         return resolved
 
@@ -2167,6 +2171,8 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
         else:
             code = int(_classify_matrix(matrix, columns, values))
         resolved = (code, columns, values)
+        if len(self._structure_cache) >= _STRUCTURE_CACHE_LIMIT:
+            self._structure_cache.clear()
         self._structure_cache[id(step)] = (step, resolved)
         return resolved
 

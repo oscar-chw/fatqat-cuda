@@ -169,7 +169,7 @@ class _SCProfileSimulator(Simulator):
         num_qubits: int,
         method: str = "statevector",
         runtime: str = "numba",
-        device_id: int | Sequence[int] | None = None,
+        device_id: int | Sequence[int] | str | None = None,
         noise: NoiseModel | None = None,
     ) -> None:
         self._num_qubits = num_qubits
@@ -280,7 +280,7 @@ class SCQubitSimulator(_SCProfileSimulator):
         couplings: tuple[tuple[int, int], ...] = DEFAULT_COUPLINGS,
         method: str = "statevector",
         runtime: str = "numba",
-        device_id: int | Sequence[int] | None = None,
+        device_id: int | Sequence[int] | str | None = None,
         noise: NoiseModel | None = None,
     ) -> None:
         """Create a constrained superconducting simulator.
@@ -416,7 +416,7 @@ class _SCQubitRotationSimulator(_SCProfileSimulator):
         couplings: tuple[tuple[int, int], ...] = DEFAULT_COUPLINGS,
         method: str = "statevector",
         runtime: str = "numba",
-        device_id: int | Sequence[int] | None = None,
+        device_id: int | Sequence[int] | str | None = None,
         noise: NoiseModel | None = None,
     ) -> None:
         """Create the private rotation-profile simulator.
