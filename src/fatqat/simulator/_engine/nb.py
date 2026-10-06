@@ -3200,7 +3200,9 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
 
 
 # Deep base list by design: the leaf adds only its plan builder and payloads.
-class NumbaUnitaryEngine(  # pylint: disable=too-many-ancestors
+# As for NumpyUnitaryEngine: the inherited collapse deliberately raises, so
+# pylint takes it for abstract; operator engines do not support measurement.
+class NumbaUnitaryEngine(  # pylint: disable=too-many-ancestors,abstract-method
     _NumbaOperatorRunMixin, NumbaSVEngine, NumpyUnitaryEngine
 ):
     """Unitary engine with Numba-jitted numeric kernels.
@@ -3263,7 +3265,7 @@ class NumbaUnitaryEngine(  # pylint: disable=too-many-ancestors
 
 
 # Deep base list by design: the leaf adds only its plan builder and payloads.
-class NumbaSuperopEngine(  # pylint: disable=too-many-ancestors
+class NumbaSuperopEngine(  # pylint: disable=too-many-ancestors,abstract-method
     _NumbaOperatorRunMixin, NumbaDMEngine, NumpySuperopEngine
 ):
     """Super-operator engine with Numba-jitted numeric kernels.

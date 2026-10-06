@@ -166,10 +166,12 @@ def _unitary_engines(engines):
     del engines  # skips the module without a CUDA device
     from fatqat.simulator._engine.cupy import CupyUnitaryEngine
 
-    class TiledUnitary(CupyUnitaryEngine):  # pylint: disable=too-many-ancestors
+    # pylint: disable-next=too-many-ancestors,abstract-method
+    class TiledUnitary(CupyUnitaryEngine):
         _TILE_MIN_BYTES = 0
 
-    class PerGateUnitary(CupyUnitaryEngine):  # pylint: disable=too-many-ancestors
+    # pylint: disable-next=too-many-ancestors,abstract-method
+    class PerGateUnitary(CupyUnitaryEngine):
         _TILE_BITS = 64
 
     return TiledUnitary, PerGateUnitary

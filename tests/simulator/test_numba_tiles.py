@@ -120,7 +120,8 @@ def test_mixed_radix_systems_are_unchanged():
 
 
 def test_unitary_engine_never_queues():
-    class TiledUnitary(NumbaUnitaryEngine):  # pylint: disable=too-many-ancestors
+    # pylint: disable-next=too-many-ancestors,abstract-method
+    class TiledUnitary(NumbaUnitaryEngine):
         _TILE_BITS = 2
         _TILE_MIN_BYTES = 0
 
@@ -281,3 +282,14 @@ def test_tile_forms_and_descriptors_place_controls_and_targets_exactly():
     assert engine._tile_gate(outside, position).targets == (-1 - 8,)
     toffoli = ApplyMatrixStep(_controlled(_CX), (1, 2, 6))
     assert engine._tile_gate(toffoli, position).fixed == ((1, 1), (2, 1), (4, 0))
+
+
+@pytest.mark.parametrize("name", ["NumbaUnitaryEngine", "NumbaSuperopEngine"])
+def test_numba_operator_engines_refuse_a_measurement_like_numpys(name):
+    # An operator is a map, not a state: collapse raises on every operator
+    # engine (on these two it used to fall through to the state engine's).
+    from fatqat.simulator._engine import nb as engine_nb
+
+    engine = getattr(engine_nb, name)()
+    with pytest.raises(NotImplementedError, match="cannot represent a measurement"):
+        engine.collapse((0,), np.random.default_rng(0))
