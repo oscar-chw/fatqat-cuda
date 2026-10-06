@@ -434,7 +434,8 @@ def test_trajectories_on_every_device_equal_one_device(monkeypatch):
         pytest.skip("needs at least two CUDA devices")
     program, theta, noise = _trajectory_program()
     program = program.assign_parameters({theta: 0.7})
-    options = {"shots": 3000, "simulation_config": {"seed": 37}}
+    # Fewer shots than the program's 128 possible branches, so they spread.
+    options = {"shots": 120, "simulation_config": {"seed": 37}}
     used = []
     shipped = simulator_module._run_shots_on_device_workers
 
