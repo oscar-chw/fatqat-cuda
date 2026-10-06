@@ -26,6 +26,35 @@ from .np import (
 )
 
 
+# Complex multiply and multiply-add with every rounding spelled out. Left to
+# the compiler, which product of ``m.x*a.x - m.y*a.y`` is fused into an FMA
+# differs between kernels, so equal source in two kernels can differ in the
+# last bit; every kernel that must agree with another (the per-gate qubit
+# kernels and the gate tiles) uses these. Each part of the product is a 2x2
+# determinant, computed with Kahan's algorithm: the rounding error of one
+# product is recovered exactly with an FMA, so the part is within about 2 ulp
+# even under cancellation (Jeannerod, Louvet and Muller, Math. Comp. 82, 2013).
+# Plain arithmetic was measured worse than one CPU engine or the other on deep
+# circuits: unfused like Numba on 4096 alternating gates and their adjoints,
+# one product fused (the compiler's choice) on 4096 repeated rotations.
+_COMPLEX_OPS = r"""
+__device__ __forceinline__ double determinant(double a, double b, double c, double d) {
+    // a*b - c*d
+    const double w = __dmul_rn(c, d);
+    const double error = __fma_rn(-c, d, w);  // w - c*d, exactly
+    return __dadd_rn(__fma_rn(a, b, -w), error);
+}
+__device__ __forceinline__ double2 cmul(double2 m, double2 a) {
+    return make_double2(determinant(m.x, a.x, m.y, a.y),
+                        determinant(m.x, a.y, -m.y, a.x));
+}
+__device__ __forceinline__ double2 cmul_add(double2 acc, double2 m, double2 a) {
+    const double2 t = cmul(m, a);
+    return make_double2(__dadd_rn(acc.x, t.x), __dadd_rn(acc.y, t.y));
+}
+"""
+
+
 class _CupyRuntime:
     """Device ownership shared by CUDA matrix-family engines."""
 
@@ -227,8 +256,7 @@ class _CupyRuntime:
                     if (i >= size) return;
                     int row = (i >> first) & 1;
                     if (WIDTH == 2) row = 2 * row + ((i >> second) & 1);
-                    double2 a = state[i], m = matrix[row * DIM + row];
-                    state[i] = make_double2(m.x*a.x - m.y*a.y, m.x*a.y + m.y*a.x);
+                    state[i] = cmul(matrix[row * DIM + row], state[i]);
                 }
                 """
             else:
@@ -259,22 +287,18 @@ class _CupyRuntime:
                         if (MONOMIAL) {
                             if (fixed & (1 << r)) continue;
                             int c = (permutation >> (2*r)) & 3;
-                            double2 m = matrix[r*DIM+c], a = values[c];
-                            state[indices[r]] = make_double2(m.x*a.x-m.y*a.y, m.x*a.y+m.y*a.x);
+                            state[indices[r]] = cmul(matrix[r*DIM+c], values[c]);
                             continue;
                         }
-                        double real=0, imag=0;
-                        for (int c=0; c<DIM; ++c) {
-                            double2 m = matrix[r*DIM+c], a=values[c];
-                            real += m.x*a.x - m.y*a.y;
-                            imag += m.x*a.y + m.y*a.x;
-                        }
-                        state[indices[r]] = make_double2(real, imag);
+                        double2 sum = make_double2(0.0, 0.0);
+                        for (int c=0; c<DIM; ++c)
+                            sum = cmul_add(sum, matrix[r*DIM+c], values[c]);
+                        state[indices[r]] = sum;
                     }
                 }
                 """
             source = source.replace("WIDTH", str(width)).replace("DIM", str(dim))
-            source = source.replace("MONOMIAL", str(int(permutation >= 0)))
+            source = _COMPLEX_OPS + source.replace("MONOMIAL", str(int(permutation >= 0)))
             # No fast-math or reduced-precision mode; ordinary binary64 ops.
             self._kernels[key] = cp.RawKernel(source, "local_gate")
         work = state.size if diagonal else state.size // dim
@@ -455,7 +479,7 @@ class _CupyStateRuntime(_CupyRuntime):
 
 
 # Ints per gate in the tile kernel's descriptor (see `_apply_tile_batch`).
-_TILE_GATE_INTS = 12
+_TILE_GATE_INTS = 15
 
 
 class _GateTiles(_TileQueue):
@@ -499,6 +523,22 @@ class _GateTiles(_TileQueue):
             and all(d == 2 for d in self._dims)
         )
 
+    def _tile_form_of(self, step):
+        form = super()._tile_form_of(step)
+        if form is None or len(step.target_indices) < 3:
+            return form
+        # Gates on three qubits otherwise take the cuBLAS contraction path,
+        # whose fused rounding differs from the tile kernel's (measured: last
+        # bits of a three-qubit diagonal or controlled two-qubit gate). Gates
+        # whose entries are 0, +-1 and +-i round on neither path, so only
+        # those (Toffoli, Fredkin, CCZ) join a tile.
+        matrix = np.asarray(step.matrix)
+        parts = np.concatenate((matrix.real.ravel(), matrix.imag.ravel()))
+        exact = np.all(np.isin(parts, (-1.0, 0.0, 1.0))) and np.all(
+            np.abs(matrix)[matrix != 0] == 1
+        )
+        return form if exact else None
+
     @cached_property
     def _tile_min_bytes(self):
         if self._TILE_MIN_BYTES is not None:
@@ -511,32 +551,23 @@ class _GateTiles(_TileQueue):
         tile, rest = self._tile_bits(steps)
         position = {q: i for i, q in enumerate(tile)}
         descriptors, masks, matrices, matrix_offset = [], [], [], 0
-        offset, _total = self._tile_layout()
         for step in steps:
             form = self._tile_form_of(step)
-            local_mask, local_value, rest_mask, rest_value = self._tile_gate_masks(
-                step, position
-            )
-            masks += [rest_mask, rest_value]
-            diagonal_bits = [0, 0, 0]
+            gate = self._tile_gate(step, position)
+            masks += [gate.rest_mask, gate.rest_value]
             if form.diagonal:
-                kind, first, second, permutation, fixed = 3, 0, 0, -1, 0
-                width = len(step.target_indices)
-                diagonal_bits[:width] = self._tile_diagonal_bits(step, position)
+                kind, permutation, fixed = 3, -1, 0
             else:
                 _device, (diagonal, permutation, fixed) = self._qubit_matrix(
                     form.matrix
                 )
                 kind = 0 if diagonal else 1 if permutation >= 0 else 2
-                active = [offset + step.target_indices[p] for p in form.active]
-                width, first, second = (
-                    len(active),
-                    position[active[0]],
-                    position[active[-1]],
-                )
+            targets = list(gate.targets) + [0] * (3 - len(gate.targets))
+            places = [p for p, _ in gate.fixed] + [0] * (3 - len(gate.fixed))
+            values = [v for _, v in gate.fixed] + [0] * (3 - len(gate.fixed))
             descriptors += [
-                kind, width, first, second, matrix_offset, permutation, fixed,
-                local_mask, local_value, *diagonal_bits,
+                kind, len(gate.targets), *targets, matrix_offset, permutation,
+                fixed, len(gate.fixed), *places, *values,
             ]  # fmt: skip
             matrices.append(np.asarray(form.matrix, dtype=np.complex128).ravel())
             matrix_offset += matrices[-1].size
@@ -548,6 +579,15 @@ class _GateTiles(_TileQueue):
                 for (int b = 0; b < TILE_BITS; ++b)
                     if ((j >> b) & 1) base |= 1ULL << tile_bits[b];
                 return base;
+            }
+            // Insert bit values[i] at tile position places[i] (ascending).
+            __device__ __forceinline__ int spread(
+                int k, int count, const int* places, const int* values) {
+                for (int i = 0; i < count; ++i) {
+                    const int p = places[i];
+                    k = (k & ((1 << p) - 1)) | ((k >> p) << (p + 1)) | (values[i] << p);
+                }
+                return k;
             }
             extern "C" __global__ void gate_tile(
                 double2* state, const double2* matrices, const int* gates,
@@ -566,85 +606,83 @@ class _GateTiles(_TileQueue):
                     // block, so every thread skips (and syncs) together.
                     if ((base & masks[2 * g]) != masks[2 * g + 1]) continue;
                     const int* d = gates + GATE_INTS * g;
-                    const int kind = d[0], width = d[1], first = d[2], second = d[3];
-                    const int permutation = d[5], fixed = d[6], dim = 1 << width;
-                    const int local_mask = d[7], local_value = d[8];
-                    const double2* matrix = matrices + d[4];
+                    const int kind = d[0], width = d[1];
+                    const int permutation = d[6], fixed = d[7], count = d[8];
+                    const int* places = d + 9;
+                    const int* values = d + 12;
+                    const double2* matrix = matrices + d[5];
+                    // Only amplitudes where the tile-local controls hold are
+                    // visited: `count` positions are fixed around each k.
+                    const int visits = size >> count;
                     if (kind == 3) {
-                        // A diagonal anywhere: fold its bits outside the tile
-                        // into the row, leaving entries chosen by tile bits.
-                        int fixed_row = 0, inside = 0, places[3], rows[3];
+                        // A diagonal anywhere: its targets outside the tile
+                        // fold into the row; those inside are enumerated.
+                        int fixed_row = 0, inside = 0, b0 = 0, b1 = 0, b2 = 0;
+                        int r0 = 0, r1 = 0, r2 = 0;
                         for (int p = 0; p < width; ++p) {
-                            const int bit = d[9 + p];
-                            if (bit < 0) {
-                                if ((base >> (-1 - bit)) & 1ULL)
-                                    fixed_row |= 1 << (width - 1 - p);
+                            const int target = d[2 + p], row_bit = width - 1 - p;
+                            if (target < 0) {
+                                if ((base >> (-1 - target)) & 1ULL)
+                                    fixed_row |= 1 << row_bit;
                             } else {
-                                places[inside] = bit;
-                                rows[inside++] = width - 1 - p;
+                                if (inside == 0) { b0 = target; r0 = row_bit; }
+                                else if (inside == 1) { b1 = target; r1 = row_bit; }
+                                else { b2 = target; r2 = row_bit; }
+                                ++inside;
                             }
                         }
-                        double2 local[8];
+                        const int dim = 1 << inside;
                         bool trivial = true;
-                        for (int r = 0; r < (1 << inside); ++r) {
-                            int row = fixed_row;
-                            for (int t = 0; t < inside; ++t)
-                                if ((r >> t) & 1) row |= 1 << rows[t];
-                            local[r] = matrix[row];
-                            trivial = trivial && local[r].x == 1.0 && local[r].y == 0.0;
+                        for (int r = 0; r < dim; ++r) {
+                            const int row = fixed_row | ((r & 1) << r0)
+                                | (((r >> 1) & 1) << r1) | (((r >> 2) & 1) << r2);
+                            trivial = trivial && matrix[row].x == 1.0 && matrix[row].y == 0.0;
                         }
                         if (trivial) continue;  // uniform over the block
-                        for (int i = threadIdx.x; i < size; i += blockDim.x) {
-                            int r = 0;
-                            for (int t = 0; t < inside; ++t)
-                                if ((i >> places[t]) & 1) r |= 1 << t;
-                            double2 a = tile[i], m = local[r];
-                            // A factor of exactly 1 changes nothing.
-                            if (m.x == 1.0 && m.y == 0.0) continue;
-                            tile[i] = make_double2(m.x*a.x - m.y*a.y, m.x*a.y + m.y*a.x);
-                        }
-                    } else if (kind == 0) {
-                        for (int i = threadIdx.x; i < size; i += blockDim.x) {
-                            if ((i & local_mask) != local_value) continue;
-                            int row = (i >> first) & 1;
-                            if (width == 2) row = 2 * row + ((i >> second) & 1);
-                            double2 a = tile[i], m = matrix[row * dim + row];
-                            tile[i] = make_double2(m.x*a.x - m.y*a.y, m.x*a.y + m.y*a.x);
+                        for (int k = threadIdx.x; k < visits; k += blockDim.x) {
+                            const int start = spread(k, count, places, values);
+                            for (int r = 0; r < dim; ++r) {
+                                const int row = fixed_row | ((r & 1) << r0)
+                                    | (((r >> 1) & 1) << r1) | (((r >> 2) & 1) << r2);
+                                const double2 m = matrix[row];
+                                // A factor of exactly 1 changes nothing.
+                                if (m.x == 1.0 && m.y == 0.0) continue;
+                                const int i = start | ((r & 1) << b0)
+                                    | (((r >> 1) & 1) << b1) | (((r >> 2) & 1) << b2);
+                                tile[i] = cmul(m, tile[i]);
+                            }
                         }
                     } else {
-                        int lo = first, hi = second;
-                        if (width == 2 && lo > hi) { int tmp = lo; lo = hi; hi = tmp; }
-                        for (int gi = threadIdx.x; gi < (size >> width); gi += blockDim.x) {
-                            int mask = (1 << lo) - 1;
-                            int local = (gi & mask) | ((gi >> lo) << (lo + 1));
-                            if (width == 2) {
-                                mask = (1 << hi) - 1;
-                                local = (local & mask) | ((local >> hi) << (hi + 1));
-                            }
-                            if ((local & local_mask) != local_value) continue;
-                            double2 values[4];
+                        const int first = d[2], second = d[3], dim = 1 << width;
+                        for (int k = threadIdx.x; k < visits; k += blockDim.x) {
+                            const int local = spread(k, count, places, values);
+                            double2 amplitudes[4];
                             int indices[4];
                             for (int r = 0; r < dim; ++r) {
                                 int offset = width == 1 ? (r << first)
                                     : (((r >> 1) << first) | ((r & 1) << second));
                                 indices[r] = local | offset;
-                                if (kind != 1 || !(fixed & (1 << r))) values[r] = tile[indices[r]];
+                                if (kind != 1 || !(fixed & (1 << r)))
+                                    amplitudes[r] = tile[indices[r]];
                             }
                             for (int r = 0; r < dim; ++r) {
+                                if (kind == 0) {
+                                    // A diagonal gate given tile bits: not
+                                    // produced by _tile_form, but by the
+                                    // every-target arm of perf/tile_check.py.
+                                    tile[indices[r]] = cmul(matrix[r * dim + r], amplitudes[r]);
+                                    continue;
+                                }
                                 if (kind == 1) {
                                     if (fixed & (1 << r)) continue;
                                     int c = (permutation >> (2 * r)) & 3;
-                                    double2 m = matrix[r * dim + c], a = values[c];
-                                    tile[indices[r]] = make_double2(m.x*a.x-m.y*a.y, m.x*a.y+m.y*a.x);
+                                    tile[indices[r]] = cmul(matrix[r * dim + c], amplitudes[c]);
                                     continue;
                                 }
-                                double real = 0, imag = 0;
-                                for (int c = 0; c < dim; ++c) {
-                                    double2 m = matrix[r * dim + c], a = values[c];
-                                    real += m.x*a.x - m.y*a.y;
-                                    imag += m.x*a.y + m.y*a.x;
-                                }
-                                tile[indices[r]] = make_double2(real, imag);
+                                double2 sum = make_double2(0.0, 0.0);
+                                for (int c = 0; c < dim; ++c)
+                                    sum = cmul_add(sum, matrix[r * dim + c], amplitudes[c]);
+                                tile[indices[r]] = sum;
                             }
                         }
                     }
@@ -655,7 +693,7 @@ class _GateTiles(_TileQueue):
             }
             """
             source = source.replace("TILE_BITS", str(self._TILE_BITS))
-            source = source.replace("GATE_INTS", str(_TILE_GATE_INTS))
+            source = _COMPLEX_OPS + source.replace("GATE_INTS", str(_TILE_GATE_INTS))
             # No fast-math or reduced-precision mode; ordinary binary64 ops.
             kernel = cp.RawKernel(source, "gate_tile")
             shared = (1 << self._TILE_BITS) * 16

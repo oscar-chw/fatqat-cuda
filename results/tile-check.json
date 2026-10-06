@@ -1,0 +1,84 @@
+{
+ "description": "Tiles where controls and diagonal gates take no tile bit, against tiles where every target does and against per-gate passes; same engine, arms alternating in one process.",
+ "measurement_date": "2026-10-06",
+ "code_revision": "a1f9927",
+ "software": {
+  "python": "3.12.14",
+  "numpy": "2.3.5"
+ },
+ "rows": [
+  {
+   "workload": "qft",
+   "runtime": "numba",
+   "qubits": 24,
+   "steps": 324,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 27,
+    "insular": 5
+   },
+   "median_s": {
+    "per_gate": 1.4935352923348546,
+    "every_target": 0.9880534172989428,
+    "insular": 0.6023223749361932
+   },
+   "insular_over_every_target": 1.6404062980453147,
+   "insular_over_per_gate": 2.4796277782193825
+  },
+  {
+   "workload": "adder",
+   "runtime": "numba",
+   "qubits": 24,
+   "steps": 397,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 7,
+    "insular": 7
+   },
+   "median_s": {
+    "per_gate": 2.230157459154725,
+    "every_target": 1.3202654169872403,
+    "insular": 0.8946257908828557
+   },
+   "insular_over_every_target": 1.4757739274253932,
+   "insular_over_per_gate": 2.4928383262390734
+  },
+  {
+   "workload": "qaoa",
+   "runtime": "numba",
+   "qubits": 24,
+   "steps": 360,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 21,
+    "insular": 16
+   },
+   "median_s": {
+    "per_gate": 2.1843742919154465,
+    "every_target": 1.5035282080061734,
+    "insular": 1.0052932919934392
+   },
+   "insular_over_every_target": 1.4956114996298868,
+   "insular_over_per_gate": 2.172872642553853
+  },
+  {
+   "workload": "clifford_t",
+   "runtime": "numba",
+   "qubits": 24,
+   "steps": 600,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 61,
+    "insular": 27
+   },
+   "median_s": {
+    "per_gate": 3.81869004201144,
+    "every_target": 2.5654082908295095,
+    "insular": 1.5237638331018388
+   },
+   "insular_over_every_target": 1.683599672796574,
+   "insular_over_per_gate": 2.5060904840075846
+  }
+ ],
+ "failures": []
+}

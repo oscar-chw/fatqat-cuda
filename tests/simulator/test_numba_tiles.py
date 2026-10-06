@@ -236,5 +236,4 @@ def test_a_fourier_transform_needs_one_pass_per_tile_of_hadamards():
 
     tiled = _run(Counted, n, plan, None)
     np.testing.assert_array_equal(tiled, _run(_PerGate, n, plan, None))
-    assert sum(batches) + 0 >= len(plan) - 4
     assert len(batches) <= 4

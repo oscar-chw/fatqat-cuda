@@ -84,5 +84,22 @@ def test_verdict_fails_on_each_regression_and_passes_otherwise():
     assert verdict(worse, rows)
     assert verdict(fine, [_row("adder", speedup=MIN_SPEEDUP - 0.01)])
     assert verdict(fine, [_row("rotated_qft_control", fraction=MAX_PASS_FRACTION * 2)])
-    # The GPU's wall time is reported, not gated: it runs where load varies.
+    # A loss in one family fails even when the pooled mean is a gain.
+    hidden = {
+        "numba": {
+            **fine["numba"],
+            "by_family": {
+                "adder": {
+                    "mean_simplify_minus_plain_eps": 0.4,
+                    "standard_error_eps": 0.1,
+                }
+            },
+        }
+    }
+    assert verdict(hidden, rows)
+    # The GPU's wall time and planning share are reported, not gated: at this
+    # size a GPU gate takes microseconds, so planning pays only on larger states.
     assert verdict(fine, [_row("adder", speedup=1.0, runtime="cuda")]) == []
+    assert (
+        verdict(fine, [_row("rotated_qft_control", fraction=0.5, runtime="cuda")]) == []
+    )

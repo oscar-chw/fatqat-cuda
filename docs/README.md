@@ -8,7 +8,7 @@ the pages below are the plain Markdown pages in this folder.
 | Page | What it answers |
 | --- | --- |
 | [cuda-coverage.md](cuda-coverage.md) | Which `runtime="cuda"` requests run on the GPU, and what happens to the rest? |
-| [optimisations.md](optimisations.md) | What r9 changes (gate tiles, simplification, several GPUs), and why accuracy and memory do not change. |
+| [optimisations.md](optimisations.md) | What r9 and r10 change (gate tiles, exact simplification, several GPUs), and why accuracy and memory do not get worse. |
 | [CUDA runtime guide](mkdocs/en/api/cupy-simulator.md) | Coverage, precision and the tested environment of the CUDA runtime, in the MkDocs API reference. |
 
 ## Check the evidence

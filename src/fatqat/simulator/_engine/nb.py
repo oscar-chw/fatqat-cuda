@@ -662,25 +662,36 @@ def _deposit(value, bits) -> int:  # pragma: no cover - compiled by Numba
 _GLOBAL_DIAGONAL = 3
 
 
+@njit(cache=True, inline="always")
+def _spread(k, places, values, count) -> int:  # pragma: no cover - compiled by Numba
+    """Insert bit ``values[i]`` at tile position ``places[i]`` (ascending) into ``k``."""
+    for i in range(count):
+        p = places[i]
+        k = (k & ((1 << p) - 1)) | ((k >> p) << (p + 1)) | (values[i] << p)
+    return k
+
+
 @njit(cache=True)
 def _tile_global_diagonal(
-    tile, base, width, bits, entries, offsets, local, places, rows
+    tile, base, width, targets, entries, places, values, count, offsets, local
 ) -> None:  # pragma: no cover - compiled by Numba
-    """A diagonal gate whose targets may lie outside the tile.
+    """A diagonal gate, applied only where its controls hold.
 
-    Targets outside it (``bits`` holds ``-1 - bit`` for those) are constant
-    over the tile, so they fold into the row, leaving a diagonal on the
-    targets inside it. A factor of exactly 1 changes nothing and is skipped.
+    ``targets`` holds a tile position, or ``-1 - bit`` for a target outside the
+    tile: constant over it, so it folds into the row, leaving a diagonal on the
+    targets inside. A factor of exactly 1 changes nothing and is skipped.
     """
     fixed = 0
     inside = 0
+    rows = np.empty(3, dtype=np.int64)
+    bits = np.empty(3, dtype=np.int64)
     for p in range(width):
-        bit = bits[p]
-        if bit < 0:
-            if (base >> (-1 - bit)) & 1:
+        target = targets[p]
+        if target < 0:
+            if (base >> (-1 - target)) & 1:
                 fixed |= 1 << (width - 1 - p)
         else:
-            places[inside] = bit
+            bits[inside] = target
             rows[inside] = width - 1 - p
             inside += 1
     dim = 1 << inside
@@ -691,22 +702,13 @@ def _tile_global_diagonal(
         for i in range(inside):
             if (r >> i) & 1:
                 row |= 1 << rows[i]
-                offsets[r] |= 1 << places[i]
+                offsets[r] |= 1 << bits[i]
         local[r] = entries[row]
         trivial = trivial and local[r] == 1.0
     if trivial:
         return
-    # Cosets of the inside bits: insert a zero at each, lowest first.
-    for i in range(1, inside):
-        j = i
-        while j > 0 and places[j - 1] > places[j]:
-            places[j - 1], places[j] = places[j], places[j - 1]
-            j -= 1
-    for k in range(tile.shape[0] >> inside):
-        start = k
-        for i in range(inside):
-            low = places[i]
-            start = (start & ((1 << low) - 1)) | ((start >> low) << (low + 1))
+    for k in range(tile.shape[0] >> count):
+        start = _spread(k, places, values, count)
         for r in range(dim):
             if local[r] != 1.0:
                 tile[start + offsets[r]] *= local[r]
@@ -714,17 +716,14 @@ def _tile_global_diagonal(
 
 @njit(cache=True)
 def _tile_one_qubit(
-    tile, code, first, local_mask, local_value, matrix, columns, entries, gathered
+    tile, code, first, places, values, count, matrix, columns, entries, gathered
 ) -> None:  # pragma: no cover - compiled by Numba
     """The commonest case, unrolled: the same products and sums, in the same
     order, as `_tile_general`. Permutation entries of exactly 1 are moves."""
     step = 1 << first
-    low = step - 1
     m00, m01, m10, m11 = matrix[0, 0], matrix[0, 1], matrix[1, 0], matrix[1, 1]
-    for k in range(tile.shape[0] >> 1):
-        i0 = (k & low) | ((k >> first) << (first + 1))
-        if (i0 & local_mask) != local_value:
-            continue
+    for k in range(tile.shape[0] >> count):
+        i0 = _spread(k, places, values, count)
         a0, a1 = tile[i0], tile[i0 + step]
         if code == _DENSE:
             tile[i0] = (0.0 + 0.0j) + m00 * a0 + m01 * a1
@@ -745,8 +744,9 @@ def _tile_general(
     width,
     first,
     second,
-    local_mask,
-    local_value,
+    places,
+    values,
+    count,
     matrix,
     columns,
     entries,
@@ -760,16 +760,11 @@ def _tile_general(
             offsets[c] = c << first
         else:
             offsets[c] = ((c >> 1) << first) | ((c & 1) << second)
-    lo, hi = first, second
-    if width == 2 and lo > hi:
-        lo, hi = hi, lo
-    for k in range(tile.shape[0] >> width):
-        start = (k & ((1 << lo) - 1)) | ((k >> lo) << (lo + 1))
-        if width == 2:
-            start = (start & ((1 << hi) - 1)) | ((start >> hi) << (hi + 1))
-        if (start & local_mask) != local_value:
-            continue
+    for k in range(tile.shape[0] >> count):
+        start = _spread(k, places, values, count)
         if code == _DIAGONAL:
+            # A diagonal gate given tile bits: not produced by `_tile_form`,
+            # but by the every-target comparison arm of perf/tile_check.py.
             for r in range(dim):
                 tile[start + offsets[r]] *= entries[r]
             continue
@@ -793,51 +788,45 @@ def _tile_gates(
     tile,
     base,
     codes,
-    firsts,
-    seconds,
     widths,
+    targets,
     matrices,
     columns,
     values,
-    controls,
-    diagonal_bits,
+    fixed_places,
+    fixed_values,
+    fixed_counts,
+    rest,
 ) -> None:  # pragma: no cover - compiled by Numba
     """Apply a run of qubit gates to one gathered tile, in order.
 
-    ``base`` is the tile's global index. ``controls[g]`` holds (tile mask,
-    tile value, rest mask, rest value): a gate runs only where its controls
-    hold, tested once per tile for controls outside it.
+    ``base`` is the tile's global index. A gate whose controls outside the
+    tile (``rest[g]``: mask, value) fail is skipped for the whole tile; inside
+    it, only the amplitudes where its tile-local controls hold are visited
+    (``fixed_*``: the positions enumerated around, see `_TileGate`).
     """
     offsets = np.empty(8, dtype=np.int64)
     gathered = np.empty(4, dtype=np.complex128)
     local = np.empty(8, dtype=np.complex128)
-    places = np.empty(3, dtype=np.int64)
-    rows = np.empty(3, dtype=np.int64)
     for g in range(codes.shape[0]):
-        if (base & controls[g, 2]) != controls[g, 3]:
+        if (base & rest[g, 0]) != rest[g, 1]:
             continue
-        code, width = codes[g], widths[g]
+        code, width, count = codes[g], widths[g], fixed_counts[g]
+        places, fixed = fixed_places[g], fixed_values[g]
         if code == _GLOBAL_DIAGONAL:
             _tile_global_diagonal(
-                tile,
-                base,
-                width,
-                diagonal_bits[g],
-                values[g],
-                offsets,
-                local,
-                places,
-                rows,
-            )
+                tile, base, width, targets[g], values[g], places, fixed, count,
+                offsets, local,
+            )  # fmt: skip
         elif width == 1 and code != _DIAGONAL:
             _tile_one_qubit(
-                tile, code, firsts[g], controls[g, 0], controls[g, 1],
+                tile, code, targets[g, 0], places, fixed, count,
                 matrices[g], columns[g], values[g], gathered,
             )  # fmt: skip
         else:
             _tile_general(
-                tile, code, width, firsts[g], seconds[g], controls[g, 0], controls[g, 1],
-                matrices[g], columns[g], values[g], offsets, gathered,
+                tile, code, width, targets[g, 0], targets[g, width - 1], places,
+                fixed, count, matrices[g], columns[g], values[g], offsets, gathered,
             )  # fmt: skip
 
 
@@ -847,14 +836,15 @@ def _apply_tiles(
     tile_bits,
     rest_bits,
     codes,
-    firsts,
-    seconds,
     widths,
+    targets,
     matrices,
     columns,
     values,
-    controls,
-    diagonal_bits,
+    fixed_places,
+    fixed_values,
+    fixed_counts,
+    rest,
 ) -> np.ndarray:  # pragma: no cover - compiled by Numba
     """Gather, update and scatter every tile; tiles are independent."""
     size = 1 << tile_bits.shape[0]
@@ -869,18 +859,9 @@ def _apply_tiles(
         for j in range(size):
             tile[j] = state[base + offsets[j]]
         _tile_gates(
-            tile,
-            base,
-            codes,
-            firsts,
-            seconds,
-            widths,
-            matrices,
-            columns,
-            values,
-            controls,
-            diagonal_bits,
-        )
+            tile, base, codes, widths, targets, matrices, columns, values,
+            fixed_places, fixed_values, fixed_counts, rest,
+        )  # fmt: skip
         for j in range(size):
             state[base + offsets[j]] = tile[j]
     return state
@@ -2016,27 +1997,31 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
         position = {int(q): i for i, q in enumerate(tile_bits)}
         count = len(pending)
         codes = np.empty(count, dtype=np.int64)
-        firsts = np.zeros(count, dtype=np.int64)
-        seconds = np.zeros(count, dtype=np.int64)
         widths = np.empty(count, dtype=np.int64)
+        targets = np.zeros((count, 3), dtype=np.int64)
         matrices = np.zeros((count, 4, 4), dtype=np.complex128)
         columns = np.zeros((count, 4), dtype=np.int64)
         values = np.zeros((count, 8), dtype=np.complex128)
-        controls = np.zeros((count, 4), dtype=np.int64)
-        diagonal_bits = np.zeros((count, 3), dtype=np.int64)
+        fixed_places = np.zeros((count, 3), dtype=np.int64)
+        fixed_values = np.zeros((count, 3), dtype=np.int64)
+        fixed_counts = np.zeros(count, dtype=np.int64)
+        rest_controls = np.zeros((count, 2), dtype=np.int64)
         for g, step in enumerate(pending):
             form = self._tile_form_of(step)
-            controls[g] = self._tile_gate_masks(step, position)
+            gate = self._tile_gate(step, position)
+            widths[g] = len(gate.targets)
+            targets[g, : widths[g]] = gate.targets
+            fixed_counts[g] = len(gate.fixed)
+            for i, (place, value) in enumerate(gate.fixed):
+                fixed_places[g, i], fixed_values[g, i] = place, value
+            rest_controls[g] = gate.rest_mask, gate.rest_value
             if form.diagonal:
-                codes[g], widths[g] = _GLOBAL_DIAGONAL, len(step.target_indices)
-                diagonal_bits[g, : widths[g]] = self._tile_diagonal_bits(step, position)
+                codes[g] = _GLOBAL_DIAGONAL
                 values[g, : len(form.matrix)] = form.matrix
                 continue
             code, step_columns, step_values = self._resolve_residual(step, form)
-            active = [step.target_indices[p] for p in form.active]
-            dim = 1 << len(active)
-            codes[g], widths[g] = code, len(active)
-            firsts[g], seconds[g] = position[active[0]], position[active[-1]]
+            dim = 1 << widths[g]
+            codes[g] = code
             matrices[g, :dim, :dim] = form.matrix
             columns[g, :dim] = step_columns
             values[g, :dim] = step_values
@@ -2045,14 +2030,15 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
             tile_bits,
             rest_bits,
             codes,
-            firsts,
-            seconds,
             widths,
+            targets,
             matrices,
             columns,
             values,
-            controls,
-            diagonal_bits,
+            fixed_places,
+            fixed_values,
+            fixed_counts,
+            rest_controls,
         )
 
     def _resolve_residual(self, step, form) -> tuple[int, np.ndarray, np.ndarray]:

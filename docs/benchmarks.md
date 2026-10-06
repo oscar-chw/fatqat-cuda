@@ -32,7 +32,9 @@ and host memory in every pair.
 - **Where r9 is faster and why:** [optimisations.md](optimisations.md)
   (tiles, simplification, several GPUs), with the CPU tile and
   simplification A/Bs ([cpu-tiles.json](../results/cpu-tiles.json),
-  [simplify.json](../results/simplify.json)).
+  [simplify.json](../results/simplify.json)) and the r10 CPU records
+  ([tile-check.json](../results/tile-check.json),
+  [simplify-check.json](../results/simplify-check.json)).
 - **Precision** ([precision.json](../results/precision.json)): 110 seeded
   circuits over the statevector, density-matrix, unitary and superoperator
   methods, qubit and mixed-radix, against a 60-digit evolution of the stored
@@ -40,7 +42,7 @@ and host memory in every pair.
   Paired over circuits, GPU minus Numba is −0.045 eps (standard error 0.031):
   indistinguishable. NumPy is about 0.1 eps more accurate than both. Turning
   off fused multiply-add on the GPU made it slightly worse (+0.049 eps, SE
-  0.024), so it stays on. "Better than the CPU" is not claimed.
+  0.024; an unpublished measurement), so it stays on. "Better than the CPU" is not claimed.
 - **Rerun:** `python perf/precision.py --require-gpu --out p.json` and
   `python perf/scaling.py --threads 32 --out s.json`; run
   `python perf/scrub_check.py` on any output before publishing it.
@@ -78,11 +80,12 @@ says how many times faster the GPU (or r8) was. Below 1 means slower.
   density matrix went from 192.130 to 128.065 MiB. r8 is not faster
   everywhere: the 9-qubit unitary was 1.9% slower, and dense two-qubit
   fixtures stayed between 0.98× and 1.10×.
-- **Precision:** within 8 machine epsilons of the CPU engine; equal-or-better
-  in every case is not established. The tests compare against an independent
-  60-digit reference with `atol=1e-12` and `rtol=0`, and require each GPU
-  error to be at most each CPU engine's error plus `8·eps(float64)`. Evidence:
-  `verification.json` (r8), `verification-r7.json`, `FQ020_VERIFICATION.json`.
+- **Precision, as tested then:** the r7/r8 tests compared against an
+  independent 60-digit reference with `atol=1e-12` and `rtol=0`, and allowed
+  each GPU error up to each CPU engine's error plus `8·eps(float64)` (a test
+  tolerance, not a measurement; unpublished verification records). The
+  measured bound is in the precision entry above: every runtime within 3.1
+  eps.
 
 Every row, with its median milliseconds and source document, is in
 [`results/benchmarks.json`](../results/benchmarks.json). See

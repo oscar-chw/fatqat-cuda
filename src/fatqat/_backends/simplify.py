@@ -74,6 +74,10 @@ from .steps import ApplyMatrixStep, BuiltinKernelKey, LossStep, PutStep
 # (which no gate set used here produces in practice) are simply not merged.
 _MAX_NUMERATOR = 1 << 40
 _MAX_EXACT_SUBSYSTEMS = 4
+_MAX_SCALED_SUBSYSTEMS = 2
+# Entries one gate may walk back across, so a long run of commuting gates
+# (thousands of diagonals) costs linear, not quadratic, planning time.
+_MAX_WALK = 64
 _SQRT2_BITS = 256
 _SQRT2_SCALED = isqrt(2 << (2 * _SQRT2_BITS))  # floor(sqrt(2) * 2**256)
 _EPS = float(np.finfo(np.float64).eps)
@@ -137,8 +141,7 @@ def _to_float(num: np.ndarray, k: int) -> np.ndarray:
         return float(value)
 
     out = np.empty(num.shape[:2], dtype=np.complex128)
-    for (r, c), entry in np.ndenumerate(out):
-        del entry
+    for r, c in np.ndindex(out.shape):
         a0, a1, a2, a3 = (int(v) for v in num[r, c])
         out[r, c] = complex(part(a0, a1 - a3), part(a2, a1 + a3))
     return out
@@ -172,7 +175,8 @@ def _table() -> dict[BuiltinKernelKey, tuple[np.ndarray, int]]:
     }
 
 
-_TABLE = _table()
+# In reduced form (minimal k), so a product equal to one of these gets its id.
+_TABLE = {key: _normal(num, k) for key, (num, k) in _table().items()}
 
 
 def _unit_kind(matrix: np.ndarray) -> str | None:
@@ -286,7 +290,8 @@ def simplify_plan(
     ``zero_start`` declares that the plan runs from the all-zero basis state,
     which enables specialisation under known inputs.
     """
-    steps = _Merger(system_dims).run(plan)
+    merger = _Merger(system_dims)
+    steps = merger.run(plan)
     if zero_start and not any(isinstance(s, (LossStep, PutStep)) for s in steps):
         # Loss and reload make occupancy, not amplitudes, decide what a gate
         # does per shot, so known inputs are not tracked across them at all.
@@ -295,7 +300,7 @@ def simplify_plan(
         if len(specialised) != len(steps) or any(
             a is not b for a, b in zip(specialised, steps)
         ):
-            steps = _Merger(system_dims).run(specialised)
+            steps = merger.run(specialised)
     return steps
 
 
@@ -328,12 +333,12 @@ class _Merger:
         # For each subsystem, sorted indices into ``out`` of live entries on it.
         self.history: dict[int, list[int]] = {}
         self.barrier = -1
+        self.layouts: dict[tuple, tuple] = {}
         self.matrices: list[tuple[np.ndarray, int]] = []
         self.ids: dict[tuple, int] = {}
         # Per id: (rounding, diagonal, identity).
         self.info: list[tuple[int, bool, bool]] = []
         self.exact_by_content: dict[tuple, int | None] = {}
-        self.diagonal_by_content: dict[tuple, bool] = {}
         self.product_cache: dict[tuple, int | None] = {}
         self.commute_cache: dict[tuple, bool] = {}
         self.emit_cache: dict[tuple, tuple[np.ndarray, tuple[int, ...]]] = {}
@@ -376,10 +381,16 @@ class _Merger:
         return _Block(targets, matrix, product, leaf=leaf, children=children)
 
     def _layout(self, inner, outer) -> tuple:
-        return (
-            tuple(outer.index(q) for q in inner),
-            tuple(self.dims[q] for q in outer),
-        )
+        """(positions of ``inner`` in ``outer``, dims of ``outer``): the part of a
+        placement that products and commutation depend on."""
+        key = (inner, outer)
+        layout = self.layouts.get(key)
+        if layout is None:
+            layout = self.layouts[key] = (
+                tuple(outer.index(q) for q in inner),
+                tuple(self.dims[q] for q in outer),
+            )
+        return layout
 
     def _embedded(self, matrix: int, inner, outer) -> np.ndarray:
         key = (matrix, *self._layout(inner, outer))
@@ -425,14 +436,9 @@ class _Merger:
         return self.exact_by_content[content]
 
     def _diagonal(self, entry) -> bool:
-        if isinstance(entry, _Block):
-            return self.info[entry.matrix][1]
-        if not isinstance(entry, ApplyMatrixStep) or entry.condition is not None:
-            return False
-        key = (entry.matrix.shape, entry.matrix.tobytes())
-        if key not in self.diagonal_by_content:
-            self.diagonal_by_content[key] = _is_diagonal(entry.matrix)
-        return self.diagonal_by_content[key]
+        # Every unconditioned diagonal step is a block (a scaled permutation
+        # at least); a step left outside the blocks never counts as diagonal.
+        return isinstance(entry, _Block) and self.info[entry.matrix][1]
 
     def _commutes(self, entry, block: _Block) -> bool:
         if not set(_targets(entry)) & set(block.targets):
@@ -487,6 +493,12 @@ class _Merger:
             before_k = self.matrices[earlier.matrix][1]
             after_k = self.matrices[later.matrix][1]
             if before_k is None or after_k is None:
+                # CUDA applies rounding gates on one or two qubits with its own
+                # kernels and wider ones through cuBLAS, which rounds
+                # differently; a product must not move a rotation across.
+                if len(targets) > _MAX_SCALED_SUBSYSTEMS:
+                    self.product_cache[key] = None
+                    return None
                 scaled = _scaled_product(after, after_k, before, before_k)
                 product = None if scaled is None else self._intern_scaled(scaled)
             else:
@@ -502,8 +514,15 @@ class _Merger:
     # -- the sweep
 
     def run(self, plan: Sequence) -> tuple:
+        """Simplify ``plan``. The matrix table and caches carry over between
+        runs of one merger; the sweep's own state starts afresh."""
+        self.out, self.history, self.barrier = [], {}, -1
         for step in plan:
-            if isinstance(step, ApplyMatrixStep) and step.kernel_key is not None:
+            if (
+                isinstance(step, ApplyMatrixStep)
+                and step.kernel_key is not None
+                and step.condition is None  # a product must never inherit one
+            ):
                 matrix = np.asarray(step.matrix, dtype=np.complex128)
                 self.keyed.setdefault((step.target_indices, matrix.tobytes()), step)
             touched = _touched(step)
@@ -536,11 +555,17 @@ class _Merger:
         crossed_any = crossed_rounding = False
         lists = [reversed(self.history.get(q, ())) for q in block.targets]
         previous = None
+        walked = 0
         for index in heapq.merge(*lists, reverse=True):
             if index == previous or index >= limit:
                 continue
             previous = index
-            if index <= self.barrier:
+            walked += 1
+            if index <= self.barrier or walked > _MAX_WALK:
+                return None
+            if crossed_rounding and self.matrices[block.matrix][1] is None:
+                # A scaled permutation rounds once whatever it merges with,
+                # so after crossing rounding it can never reduce rounding.
                 return None
             entry = self.out[index]
             if isinstance(entry, _Block):
@@ -777,6 +802,11 @@ def _specialise(plan: Sequence, system_dims: Sequence[int]) -> tuple:
         block = block.reshape(size, size)
         if np.array_equal(block, np.eye(size)):
             continue  # identity on this input
+        if free and len(targets) > _MAX_SCALED_SUBSYSTEMS and not _unit_kind(block):
+            # Shrinking a wide rounding gate would move it from CUDA's cuBLAS
+            # path to its own kernels, which round differently.
+            out.append(step)
+            continue
         if free:
             out.append(
                 ApplyMatrixStep(np.array(block, dtype=np.complex128), tuple(free))

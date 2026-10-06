@@ -267,3 +267,67 @@ def test_unitary_tiles_with_controls_anywhere_stay_bit_identical(unitary_engines
     np.testing.assert_array_equal(
         _run_unitary(tiled, 7, steps), _run_unitary(per_gate, 7, steps)
     )
+
+
+def test_only_exact_three_qubit_gates_join_a_cuda_tile():
+    # Runs without a device: the rule is decided on the host. A three-qubit
+    # gate that rounds would take the cuBLAS path alone, so it stays out.
+    from fatqat.simulator._engine.cupy import CupySVEngine
+
+    engine = CupySVEngine(device_id=0)
+    toffoli = ApplyMatrixStep(_controlled(_CX), (0, 1, 2))
+    ccz = ApplyMatrixStep(np.diag([1, 1, 1, 1, 1, 1, 1, -1]).astype(complex), (0, 1, 2))
+    phases = ApplyMatrixStep(np.diag(np.exp(1j * np.arange(8.0))), (0, 1, 2))
+    dense = ApplyMatrixStep(
+        _controlled(_unitary(np.random.default_rng(0), 4)), (0, 1, 2)
+    )
+    assert engine._tile_form_of(toffoli) is not None
+    assert engine._tile_form_of(ccz) is not None
+    assert engine._tile_form_of(phases) is None
+    assert engine._tile_form_of(dense) is None
+    # Two-qubit gates tile whatever they hold.
+    assert engine._tile_form_of(
+        ApplyMatrixStep(_unitary(np.random.default_rng(1), 4), (0, 1))
+    )
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_simplify_keeps_cuda_values_when_it_rewrites_only_exact_gates(engines, seed):
+    # Unit gates (S and Y bring +-i) and rotations conjugated by +-1
+    # permutations are the rewrites claimed to leave CUDA values unchanged;
+    # H and T are left out, since cancelling them changes values on purpose.
+    del engines
+    rng = np.random.default_rng(seed)
+    n = 14
+    program = fq.Program(n)
+    for q in range(n):
+        program.add(ops.RY(float(rng.uniform(0, np.pi))), q)
+    for _ in range(160):
+        q, r, s = (int(v) for v in rng.choice(n, 3, replace=False))
+        pick = int(rng.integers(9))
+        if pick == 0:
+            program.add(ops.CX, (q, r))
+            program.add(ops.RZ(float(rng.normal())), r)
+            program.add(ops.CX, (q, r))
+        elif pick == 1:
+            program.add(ops.CCX, (q, r, s))
+        elif pick == 2:
+            program.add(ops.CPhase(float(rng.normal())), (q, r))
+        else:
+            name = ["S", "Sdg", "Y", "X", "Z", "CZ"][pick - 3]
+            program.add(getattr(ops, name), (q, r) if name == "CZ" else q)
+    request = {"counts": False, "final_state": True}
+    backend = Simulator("statevector", runtime="cuda")
+    plain, simple = (
+        backend.run(
+            program, shots=0, result_config=request, simulation_config={"simplify": s}
+        )
+        .result()
+        .get_statevector()
+        for s in (False, True)
+    )
+    np.testing.assert_array_equal(simple, plain)
+    plan, _ = Simulator("statevector", runtime="numpy")._lower_program(program)
+    from fatqat._backends.simplify import simplify_plan
+
+    assert len(simplify_plan(plan, (2,) * n, zero_start=True)) < len(plan)

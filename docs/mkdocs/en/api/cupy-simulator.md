@@ -86,9 +86,10 @@ through an `ERROR` Job; `job.result()` raises the captured error.
 ## Devices and memory
 
 `device_id` selects an ordinal among the process's visible CUDA devices. A
-backend instance is not safe for concurrent calls. To run independent circuits
-on several GPUs, use one instance in each process, with a distinct device ID or
-`CUDA_VISIBLE_DEVICES` selection. This does not distribute one state across GPUs.
+backend instance is not safe for concurrent calls. Outside a parameter sweep,
+run independent circuits on several GPUs with one instance in each process, each
+with its own device ID or `CUDA_VISIBLE_DEVICES` selection. Nothing distributes
+one state across GPUs.
 
 For parameter sweeps, `device_id` also accepts a tuple of distinct ordinals.
 `run_sweep` then runs the rows on every listed GPU, one worker thread and engine

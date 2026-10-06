@@ -159,11 +159,21 @@ def engine_classes(runtime: str) -> dict[str, type]:
     }
 
 
-def evolve(engine_cls, n: int, plan) -> np.ndarray:
+def evolve(engine_cls, n: int, plan, *, export: bool = True):
+    """Run ``plan``; return the state on the host, or ``None`` after a sync.
+
+    Timed calls do not export: copying a large state to the host would add
+    the same constant to every arm and hide the kernels being compared.
+    """
     engine = engine_cls()
     engine.initialize((2,) * n)
     for step in plan:
         engine.apply(step)
+    state = engine.state  # applies any queued tile batch
+    if not export:
+        if hasattr(state, "get"):  # a CuPy array: wait for its kernels
+            state.device.synchronize()
+        return None
     state = engine.export_state()
     return state.get() if hasattr(state, "get") else np.asarray(state)
 
@@ -207,7 +217,7 @@ def measure(runtime: str, n: int, repeats: int) -> list[dict]:
         for _ in range(repeats):
             for arm, cls in arms.items():
                 start = time.perf_counter()
-                evolve(cls, n, plan)
+                evolve(cls, n, plan, export=False)
                 times[arm].append(time.perf_counter() - start)
         median = {arm: statistics.median(t) for arm, t in times.items()}
         row = {

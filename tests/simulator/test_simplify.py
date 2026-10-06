@@ -586,11 +586,16 @@ def test_public_runs_match_with_and_without_simplify(method, runtime):
     simple = backend.run(
         program, shots=0, result_config=request, simulation_config={"simplify": True}
     ).result()
-    # Only X.X cancels here (exactly); rotations are not merged, so the
-    # result is bit-identical: simplification never costs accuracy.
-    np.testing.assert_array_equal(
-        getattr(simple, f"get_{method}")(), getattr(plain, f"get_{method}")()
+    # X.X cancels and CX.RZ.CX-style products are exact: Numba gives the
+    # same values. NumPy contracts through BLAS, whose last bit can depend on
+    # an element's position (OpenBLAS on x86), so it is held to that bit.
+    actual, expected = (
+        getattr(result, f"get_{method}")() for result in (simple, plain)
     )
+    if runtime == "numpy":
+        np.testing.assert_allclose(actual, expected, atol=1e-15, rtol=0)
+    else:
+        np.testing.assert_array_equal(actual, expected)
     assert simple.metadata["simulation_config"]["simplify"] is True
 
 
@@ -692,3 +697,40 @@ def test_cuda_accepts_simplify():
         atol=_ATOL,
         rtol=0,
     )
+
+
+@pytest.mark.parametrize("runtime", ["numpy", "numba"])
+def test_a_product_never_takes_a_conditioned_gates_place(runtime):
+    # Regression: H Z H equals the matrix of a later X conditioned on a bit
+    # that is never 1; the product reused that step, condition and all, so
+    # the X never ran.
+    program = fq.Program(2, 2)
+    program.add(ops.H, 0)
+    program.add(ops.Z, 0)
+    program.add(ops.H, 0)
+    program.measure((1,), (0,))
+    program.add(ops.X, 0, condition=(0, 1))
+    program.measure((0,), (1,))
+    backend = Simulator("statevector", runtime=runtime)
+    counts = [
+        backend.run(
+            program, shots=20, simulation_config={"seed": 1, "simplify": simplify}
+        )
+        .result()
+        .get_counts()
+        for simplify in (False, True)
+    ]
+    assert counts[1] == counts[0]
+
+
+def test_rounding_gates_never_change_width_class():
+    # CUDA applies rounding gates on up to two qubits with its own kernels and
+    # wider ones through cuBLAS: an exact rewrite must not move one across.
+    ccx = _gate(np.eye(8, dtype=np.complex128)[[0, 1, 2, 3, 4, 5, 7, 6]], 0, 1, 2)
+    rz = _gate(_rz(0.3), 2)
+    assert simplify_plan((ccx, rz, ccx), (2, 2, 2)) == (ccx, rz, ccx)
+    # A doubly controlled rotation whose first control is known |1>: dropping
+    # would be exact, but shrinking it to a singly controlled one is not done.
+    ccrz = _gate(np.diag(np.r_[np.ones(6), np.diag(_rz(0.3))]), 0, 1, 2)
+    plan = (_gate(_X, 0), _gate(_H, 1), ccrz)
+    assert simplify_plan(plan, (2, 2, 2), zero_start=True)[-1] is ccrz

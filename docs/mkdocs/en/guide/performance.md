@@ -212,17 +212,25 @@ For eligible combinations and error behavior, see
 [Simulator runtime and execution](../api/simulator.md). Fusion is opt-in,
 and explicit parallel modes can be rejected when the Program cannot use them.
 
-## Remove redundant Clifford gates with `simplify`
+## Simplify circuits exactly with `simplify`
 
-Compiled or hand-written circuits often contain pairs that cancel, such as
-`X` then `X` or `CX` then `CX`, or sequences that collapse, such as `S` then
-`S` (which is `Z`) or three `CX` gates that form a `SWAP`. With
-`simulation_config={"simplify": True}`, these are merged before execution on
-every runtime, so the state is updated fewer times. Only gates whose matrices
-contain `0`, `±1` and `±i` take part; applying them never rounds, so the
-Numba and CUDA results have the same values with or without `simplify`.
-Rotations and `H` are left untouched, so circuits made only of rotations see
-no change. Measure the gain on your own circuit, as above.
+Compiled or hand-written circuits often contain gates that cancel or
+collapse: `X` then `X`, `H X H` (which is `Z`), `T` then `T` (which is `S`),
+three `CX` gates that form a `SWAP`, or `CX RZ CX`, which is one diagonal
+`ZZ` rotation. With `simulation_config={"simplify": True}`, such runs are
+multiplied out before execution on every runtime, so the state is updated
+fewer times.
+
+Products are computed exactly, not in floating point, for unit gates
+(entries `0`, `±1`, `±i`: Paulis, `S`, `CX`, `SWAP`), the built-in `H`, `T`,
+`Tdg` and `SX`, and rotations conjugated by `±1` permutations. A run is
+replaced only by a product that rounds no more, so the result is at least as
+close to the ideal circuit: rewrites of exact gates leave Numba and CUDA
+values unchanged, and cancelled `H` or `T` gates no longer add their rounding.
+Two rotations are never merged with each other. From the all-zero start,
+gates that act as the identity on qubits still in a known basis state (a `CX`
+whose control is still `|0⟩`) are dropped. Measurements, resets and channels
+are never crossed. Measure the gain on your own circuit, as above.
 
 ## Account for physical emulation separately
 

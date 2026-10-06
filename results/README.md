@@ -22,6 +22,33 @@ Ratios are `baseline median / candidate median`; above 1 means the candidate
 is faster. Medians come from 5 warm calls (A/B files: the median over rounds
 of each round's median).
 
+### Which public commit each `code_revision` is
+
+The `code_revision` fields name the working commits that were measured. Those
+commits were squashed before publication, so they are not in the public
+history; the engine code they ran is, file for file:
+
+| `code_revision` | Measured in | Engine code identical to public commit |
+| --- | --- | --- |
+| `6558eab` (r8) | `precision.json`, `scaling.json` | all of `src/`: `c92ff77` |
+| `078172a`, `ff32619` (r9, GPU) | `scaling-r9.json`, `ab-r8-r9.json` | `cupy.py`, `nb.py`, `np.py`, `base.py`: `0875056` |
+| `597c1a4` (r9, CPU) | `scaling-r9-cpu.json`, `simplify.json` | `cupy.py`, `np.py`, `base.py`: `0875056`; `nb.py`: `5c7c46d` |
+
+`precision.json` was measured on r8 code. Rerunning the same harness on r9
+code (`597c1a4`, recorded in `simplify.json`) reproduced all 330 of its
+runtime-circuit errors exactly.
+
+## r10 records
+
+r10 changes the simplification pass (exact gate algebra) and the tiles
+(controls and diagonal gates take no tile bit). These files record it at the
+commit they name, which is in the public history:
+
+| File | What it holds | Produced by |
+| --- | --- | --- |
+| `simplify-check.json` | `simplify=True` against the ideal circuit (exact gate definitions, 60 digits), paired per circuit on every CPU runtime, and wall time on four circuits | `perf/simplify_check.py` |
+| `tile-check.json` | Tiles where controls and diagonal gates take no tile bit, vs tiles where every target does and vs per-gate passes, with pass counts; same engine, arms alternating | `perf/tile_check.py --runtimes numba` |
+
 ## Earlier record
 
 `benchmarks.json` is a scrubbed transcription of the benchmark record behind
