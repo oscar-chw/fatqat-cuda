@@ -1,0 +1,108 @@
+{
+ "description": "Same-run A/B on one GPU: the unitary method at bf85113 (r9 as first published) vs with gate tiles on the unitary's row bits; arms alternate child process by child process; every output fingerprint matched.",
+ "measurement_date": "2026-10-06",
+ "rounds": 3,
+ "warm_calls_per_round": 5,
+ "rows": [
+  {
+   "workload": "unitary",
+   "qubits": 11,
+   "r9": {
+    "median_ms": 9.845792083069682,
+    "round_medians_ms": [
+     9.845792083069682,
+     9.813726879656315,
+     10.111398063600063
+    ],
+    "gpu_pool_reserved_mib": 64.02197265625,
+    "peak_host_rss_mib": 599.28515625
+   },
+   "r9_unitary_tiles": {
+    "median_ms": 10.114717995747924,
+    "round_medians_ms": [
+     10.114717995747924,
+     10.652228025719523,
+     10.043398011475801
+    ],
+    "gpu_pool_reserved_mib": 64.02197265625,
+    "peak_host_rss_mib": 602.625
+   },
+   "speedup": 0.973
+  },
+  {
+   "workload": "unitary",
+   "qubits": 12,
+   "r9": {
+    "median_ms": 49.483560025691986,
+    "round_medians_ms": [
+     49.483560025691986,
+     50.332222832366824,
+     48.39631309732795
+    ],
+    "gpu_pool_reserved_mib": 256.02392578125,
+    "peak_host_rss_mib": 792.8046875
+   },
+   "r9_unitary_tiles": {
+    "median_ms": 38.3528561796993,
+    "round_medians_ms": [
+     38.3528561796993,
+     39.564059814438224,
+     38.35142799653113
+    ],
+    "gpu_pool_reserved_mib": 256.0263671875,
+    "peak_host_rss_mib": 800.046875
+   },
+   "speedup": 1.29
+  },
+  {
+   "workload": "unitary",
+   "qubits": 13,
+   "r9": {
+    "median_ms": 201.42142102122307,
+    "round_medians_ms": [
+     199.55133507028222,
+     232.45661798864603,
+     201.42142102122307
+    ],
+    "gpu_pool_reserved_mib": 1024.02587890625,
+    "peak_host_rss_mib": 1561.15625
+   },
+   "r9_unitary_tiles": {
+    "median_ms": 157.30419801548123,
+    "round_medians_ms": [
+     165.71981110610068,
+     150.5842199549079,
+     157.30419801548123
+    ],
+    "gpu_pool_reserved_mib": 1024.0283203125,
+    "peak_host_rss_mib": 1558.25390625
+   },
+   "speedup": 1.28
+  },
+  {
+   "workload": "unitary",
+   "qubits": 14,
+   "r9": {
+    "median_ms": 873.2401130255312,
+    "round_medians_ms": [
+     1003.8995961658657,
+     825.6120791193098,
+     873.2401130255312
+    ],
+    "gpu_pool_reserved_mib": 4096.02783203125,
+    "peak_host_rss_mib": 4635.5078125
+   },
+   "r9_unitary_tiles": {
+    "median_ms": 614.6296060178429,
+    "round_medians_ms": [
+     611.297711962834,
+     623.8187639974058,
+     614.6296060178429
+    ],
+    "gpu_pool_reserved_mib": 4096.0302734375,
+    "peak_host_rss_mib": 4630.4140625
+   },
+   "speedup": 1.421
+  }
+ ]
+}

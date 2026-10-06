@@ -7,6 +7,7 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 from __future__ import annotations
 
 import copy
+import threading
 import warnings
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -348,9 +349,9 @@ class Simulator:
                 Runtimes are not promised to be bit-identical.
             device_id: Nonnegative CUDA device ordinal among the process's
                 visible GPUs. ``None`` selects device 0 for ``runtime="cuda"``.
-                A tuple of distinct ordinals spreads ``run_sweep`` rows across
-                those devices, one worker thread per device; ``run()`` uses
-                the first. CPU runtimes require ``None``. CuPy and device
+                A tuple (or list) of distinct ordinals spreads ``run_sweep``
+                rows across those devices, one worker thread per device;
+                ``run()`` uses the first. CPU runtimes require ``None``. CuPy and device
                 availability are checked when execution starts; failures
                 produce an ERROR Job whose ``result()`` re-raises the error.
             implementation_map: Matrix rules for supported operations.
@@ -720,13 +721,18 @@ class Simulator:
                   combine compatible adjacent operations. ``True`` requires
                   Numba with ``density_matrix``, ``unitary``, or ``superop``.
                 - ``"simplify"`` (``bool``, default ``False``): Whether to
-                  merge and cancel gates that never round (entries ``0``,
-                  ``+-1``, ``+-i``, one per row and column, such as Paulis,
-                  ``S``, ``CX`` and ``SWAP``) before execution, for example
-                  ``X`` then ``X``, or ``S`` then ``S`` into ``Z``. Other gates
-                  are never merged or moved; channels, measurements, resets,
-                  loss and reloads are never crossed. Numba and CUDA results
-                  have the same values; NumPy's may differ in the last bit.
+                  simplify the circuit with exact gate algebra before
+                  execution: products of unit gates (entries ``0``, ``+-1``,
+                  ``+-i``) and of the built-in ``H``, ``T``, ``Tdg`` and ``SX``
+                  are computed exactly, so ``X`` then ``X`` cancels, ``S``
+                  then ``S`` becomes ``Z``, and ``H X H`` becomes ``Z``. A run
+                  is replaced only by a product that rounds no more, so the
+                  result is at least as close to the ideal circuit; rewrites
+                  among unit gates leave Numba and CUDA values unchanged.
+                  From the all-zero start, gates that act as the identity on
+                  subsystems still in a known basis state are dropped.
+                  Channels, measurements, resets, loss and reloads are never
+                  crossed.
                   Not supported by ``run_sweep``.
 
                 Unknown or incompatible entries are rejected.
@@ -932,18 +938,15 @@ class Simulator:
     ) -> Job[list[Result]]:
         """Run sweep rows on every configured device, one thread per device.
 
-        Rows are materialized up front, so binding and rule failures still
-        raise directly before any execution. Each device runs its own engine
-        on rows ``k, k + D, k + 2D, ...`` in order; a backend clone carries
-        that engine, since a backend instance is not safe for concurrent runs
-        on one engine. Results return in input order; if any row fails, the
-        job carries the earliest failing row's error, as in the serial loop,
-        although rows after it on other devices may already have run.
+        Each device materializes and runs its own rows ``k, k + D, k + 2D,
+        ...`` in order, so only one row plan per device is alive at a time. A
+        backend clone carries that device's engine, since a backend instance
+        is not safe for concurrent runs on one engine. Outcomes are read back
+        in row order, so the earliest failing row decides, exactly as in the
+        serial loop: a binding or rule failure is raised directly, and an
+        execution failure becomes an ERROR job. Once a row fails, no device
+        starts a later row; earlier rows on other devices still finish.
         """
-        plans = [
-            template.materialize(tuple(row[parameter] for parameter in param_order))
-            for row in rows
-        ]
         devices = self._device_ids
         clones = []
         for index, device in enumerate(devices):
@@ -954,22 +957,47 @@ class Simulator:
                 clone._engine = self._sweep_engines[device]
             clones.append(clone)
 
-        def run_device(index: int) -> list[tuple[int, Job[Result]]]:
-            clone = clones[index]
-            return [
-                (row, clone._execute_plan(plans[row], prepared))
-                for row in range(index, len(plans), len(devices))
-            ]
+        # Per row: a Job, or the exception its materialization raised.
+        outcomes: list[Job[Result] | Exception | None] = [None] * len(rows)
+        # Earliest failed row so far; rows after it need not run.
+        first_failure = [len(rows)]
+        lock = threading.Lock()
 
-        jobs: list[Job[Result] | None] = [None] * len(plans)
-        with ThreadPoolExecutor(max_workers=len(devices)) as pool:
-            for finished in pool.map(run_device, range(len(devices))):
-                for row, job in finished:
-                    jobs[row] = job
+        def run_device(index: int) -> None:
+            clone = clones[index]
+            for row in range(index, len(rows), len(devices)):
+                if row > first_failure[0]:
+                    return
+                try:
+                    plan = template.materialize(
+                        tuple(rows[row][parameter] for parameter in param_order)
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    # Re-raised below in row order, as the serial loop would.
+                    outcomes[row] = exc
+                else:
+                    outcomes[row] = clone._execute_plan(plan, prepared)
+                    if outcomes[row].status == "DONE":
+                        continue
+                with lock:
+                    first_failure[0] = min(first_failure[0], row)
+                return
+
+        try:
+            with ThreadPoolExecutor(max_workers=len(devices)) as pool:
+                list(pool.map(run_device, range(len(devices))))
+        finally:
+            # The extra devices' engines are kept for later sweeps, but not
+            # their last row's state: nothing reads it, and it would hold a
+            # full state on each of those devices until the backend is freed.
+            for device in devices[1:]:
+                self._sweep_engines[device].state = None
         results: list[Result] = []
-        for job in jobs:
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                raise outcome
             try:
-                results.append(job.result())
+                results.append(outcome.result())
             except Exception as exc:  # execution-stage failure
                 return Job(status="ERROR", error=exc)
         return Job(status="DONE", result=results)
@@ -1094,7 +1122,11 @@ class Simulator:
                 program, context=lowering
             )
             if simulation.simplify:
-                plan = simplify_plan(plan, engine_allocation.system_dims)
+                plan = simplify_plan(
+                    plan,
+                    engine_allocation.system_dims,
+                    zero_start=initial_state is None and not self._is_operator,
+                )
                 facts, initial_occupied = self._analyze_lowered_plan(plan)
         else:
             if simulation.simplify:

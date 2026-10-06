@@ -122,7 +122,7 @@ from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
 )
-from .base import _shot_seed_sequences
+from .base import _shot_seed_sequences, _TileQueue
 from .np import (
     _NumpyOperatorEngine,
     NumpyDMEngine,
@@ -658,46 +658,187 @@ def _deposit(value, bits) -> int:  # pragma: no cover - compiled by Numba
     return index
 
 
+# A tile-only code: a diagonal gate whose bits may lie anywhere in the index.
+_GLOBAL_DIAGONAL = 3
+
+
+@njit(cache=True)
+def _tile_global_diagonal(
+    tile, base, width, bits, entries, offsets, local, places, rows
+) -> None:  # pragma: no cover - compiled by Numba
+    """A diagonal gate whose targets may lie outside the tile.
+
+    Targets outside it (``bits`` holds ``-1 - bit`` for those) are constant
+    over the tile, so they fold into the row, leaving a diagonal on the
+    targets inside it. A factor of exactly 1 changes nothing and is skipped.
+    """
+    fixed = 0
+    inside = 0
+    for p in range(width):
+        bit = bits[p]
+        if bit < 0:
+            if (base >> (-1 - bit)) & 1:
+                fixed |= 1 << (width - 1 - p)
+        else:
+            places[inside] = bit
+            rows[inside] = width - 1 - p
+            inside += 1
+    dim = 1 << inside
+    trivial = True
+    for r in range(dim):
+        row = fixed
+        offsets[r] = 0
+        for i in range(inside):
+            if (r >> i) & 1:
+                row |= 1 << rows[i]
+                offsets[r] |= 1 << places[i]
+        local[r] = entries[row]
+        trivial = trivial and local[r] == 1.0
+    if trivial:
+        return
+    # Cosets of the inside bits: insert a zero at each, lowest first.
+    for i in range(1, inside):
+        j = i
+        while j > 0 and places[j - 1] > places[j]:
+            places[j - 1], places[j] = places[j], places[j - 1]
+            j -= 1
+    for k in range(tile.shape[0] >> inside):
+        start = k
+        for i in range(inside):
+            low = places[i]
+            start = (start & ((1 << low) - 1)) | ((start >> low) << (low + 1))
+        for r in range(dim):
+            if local[r] != 1.0:
+                tile[start + offsets[r]] *= local[r]
+
+
+@njit(cache=True)
+def _tile_one_qubit(
+    tile, code, first, local_mask, local_value, matrix, columns, entries, gathered
+) -> None:  # pragma: no cover - compiled by Numba
+    """The commonest case, unrolled: the same products and sums, in the same
+    order, as `_tile_general`. Permutation entries of exactly 1 are moves."""
+    step = 1 << first
+    low = step - 1
+    m00, m01, m10, m11 = matrix[0, 0], matrix[0, 1], matrix[1, 0], matrix[1, 1]
+    for k in range(tile.shape[0] >> 1):
+        i0 = (k & low) | ((k >> first) << (first + 1))
+        if (i0 & local_mask) != local_value:
+            continue
+        a0, a1 = tile[i0], tile[i0 + step]
+        if code == _DENSE:
+            tile[i0] = (0.0 + 0.0j) + m00 * a0 + m01 * a1
+            tile[i0 + step] = (0.0 + 0.0j) + m10 * a0 + m11 * a1
+            continue
+        gathered[0], gathered[1] = a0, a1
+        for r in range(2):
+            moved = gathered[columns[r]]
+            if entries[r] != 1.0:
+                moved = entries[r] * moved
+            tile[i0 + r * step] = moved
+
+
+@njit(cache=True)
+def _tile_general(
+    tile,
+    code,
+    width,
+    first,
+    second,
+    local_mask,
+    local_value,
+    matrix,
+    columns,
+    entries,
+    offsets,
+    gathered,
+) -> None:  # pragma: no cover - compiled by Numba
+    """One gate on one or two tile bits, where its tile-local controls hold."""
+    dim = 1 << width
+    for c in range(dim):
+        if width == 1:
+            offsets[c] = c << first
+        else:
+            offsets[c] = ((c >> 1) << first) | ((c & 1) << second)
+    lo, hi = first, second
+    if width == 2 and lo > hi:
+        lo, hi = hi, lo
+    for k in range(tile.shape[0] >> width):
+        start = (k & ((1 << lo) - 1)) | ((k >> lo) << (lo + 1))
+        if width == 2:
+            start = (start & ((1 << hi) - 1)) | ((start >> hi) << (hi + 1))
+        if (start & local_mask) != local_value:
+            continue
+        if code == _DIAGONAL:
+            for r in range(dim):
+                tile[start + offsets[r]] *= entries[r]
+            continue
+        for c in range(dim):
+            gathered[c] = tile[start + offsets[c]]
+        for r in range(dim):
+            if code == _PERMUTATION:
+                if entries[r] == 1.0:  # a move: multiplying by 1 is exact
+                    tile[start + offsets[r]] = gathered[columns[r]]
+                else:
+                    tile[start + offsets[r]] = entries[r] * gathered[columns[r]]
+                continue
+            acc = 0.0 + 0.0j
+            for c in range(dim):
+                acc += matrix[r, c] * gathered[c]
+            tile[start + offsets[r]] = acc
+
+
 @njit(cache=True)
 def _tile_gates(
-    tile, codes, firsts, seconds, widths, matrices, columns, values
+    tile,
+    base,
+    codes,
+    firsts,
+    seconds,
+    widths,
+    matrices,
+    columns,
+    values,
+    controls,
+    diagonal_bits,
 ) -> None:  # pragma: no cover - compiled by Numba
-    """Apply a run of qubit gates to one gathered tile, in order."""
-    size = tile.shape[0]
-    offsets = np.empty(4, dtype=np.int64)
+    """Apply a run of qubit gates to one gathered tile, in order.
+
+    ``base`` is the tile's global index. ``controls[g]`` holds (tile mask,
+    tile value, rest mask, rest value): a gate runs only where its controls
+    hold, tested once per tile for controls outside it.
+    """
+    offsets = np.empty(8, dtype=np.int64)
     gathered = np.empty(4, dtype=np.complex128)
+    local = np.empty(8, dtype=np.complex128)
+    places = np.empty(3, dtype=np.int64)
+    rows = np.empty(3, dtype=np.int64)
     for g in range(codes.shape[0]):
-        width = widths[g]
-        dim = 1 << width
-        first, second = firsts[g], seconds[g]
-        for c in range(dim):
-            if width == 1:
-                offsets[c] = c << first
-            else:
-                offsets[c] = ((c >> 1) << first) | ((c & 1) << second)
-        lo, hi = first, second
-        if width == 2 and lo > hi:
-            lo, hi = hi, lo
-        for k in range(size >> width):
-            base = (k & ((1 << lo) - 1)) | ((k >> lo) << (lo + 1))
-            if width == 2:
-                base = (base & ((1 << hi) - 1)) | ((base >> hi) << (hi + 1))
-            if codes[g] == _DIAGONAL:
-                for r in range(dim):
-                    tile[base + offsets[r]] *= values[g, r]
-            elif codes[g] == _PERMUTATION:
-                for c in range(dim):
-                    gathered[c] = tile[base + offsets[c]]
-                for r in range(dim):
-                    tile[base + offsets[r]] = values[g, r] * gathered[columns[g, r]]
-            else:
-                for c in range(dim):
-                    gathered[c] = tile[base + offsets[c]]
-                for r in range(dim):
-                    acc = 0.0 + 0.0j
-                    for c in range(dim):
-                        acc += matrices[g, r, c] * gathered[c]
-                    tile[base + offsets[r]] = acc
+        if (base & controls[g, 2]) != controls[g, 3]:
+            continue
+        code, width = codes[g], widths[g]
+        if code == _GLOBAL_DIAGONAL:
+            _tile_global_diagonal(
+                tile,
+                base,
+                width,
+                diagonal_bits[g],
+                values[g],
+                offsets,
+                local,
+                places,
+                rows,
+            )
+        elif width == 1 and code != _DIAGONAL:
+            _tile_one_qubit(
+                tile, code, firsts[g], controls[g, 0], controls[g, 1],
+                matrices[g], columns[g], values[g], gathered,
+            )  # fmt: skip
+        else:
+            _tile_general(
+                tile, code, width, firsts[g], seconds[g], controls[g, 0], controls[g, 1],
+                matrices[g], columns[g], values[g], offsets, gathered,
+            )  # fmt: skip
 
 
 @njit(cache=True, parallel=True)
@@ -712,6 +853,8 @@ def _apply_tiles(
     matrices,
     columns,
     values,
+    controls,
+    diagonal_bits,
 ) -> np.ndarray:  # pragma: no cover - compiled by Numba
     """Gather, update and scatter every tile; tiles are independent."""
     size = 1 << tile_bits.shape[0]
@@ -725,7 +868,19 @@ def _apply_tiles(
         tile = np.empty(size, dtype=np.complex128)
         for j in range(size):
             tile[j] = state[base + offsets[j]]
-        _tile_gates(tile, codes, firsts, seconds, widths, matrices, columns, values)
+        _tile_gates(
+            tile,
+            base,
+            codes,
+            firsts,
+            seconds,
+            widths,
+            matrices,
+            columns,
+            values,
+            controls,
+            diagonal_bits,
+        )
         for j in range(size):
             state[base + offsets[j]] = tile[j]
     return state
@@ -1796,7 +1951,7 @@ def _plan_compilable(plan: Sequence[ResolvedStep]) -> bool:
     )
 
 
-class NumbaSVEngine(NumpySVEngine):
+class NumbaSVEngine(_TileQueue, NumpySVEngine):
     """State-vector engine with Numba-jitted numeric kernels."""
 
     _supports_kernel_threads = True
@@ -1829,8 +1984,6 @@ class NumbaSVEngine(NumpySVEngine):
         # per-shot dynamic loop re-initializes per trajectory and must keep
         # its once-per-plan resolutions.
         self._structure_cache: dict[int, tuple] = {}
-        self._pending: list[ApplyMatrixStep] = []
-        self._pending_bits: frozenset[int] = frozenset()
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         dims_changed = tuple(int(dim) for dim in system_dims) != self._dims
@@ -1838,72 +1991,53 @@ class NumbaSVEngine(NumpySVEngine):
         if dims_changed:
             self._apply_plans = {}
 
-    @property
-    def state(self) -> np.ndarray:
-        # Every read of the state first applies any queued gates.
-        self._flush_pending()
-        return super().state
-
-    @state.setter
-    def state(self, value: np.ndarray) -> None:
-        self._flush_pending()
-        self._state = value
-
-    def initialize(self, *args, **kwargs) -> None:
-        self._pending, self._pending_bits = [], frozenset()
-        super().initialize(*args, **kwargs)
-
     @contextmanager
     def _execution_scope(self, policy: ExecutionPolicy):
         with _thread_scope(policy):
             yield
             self._flush_pending()
 
-    def _tileable(self, targets: Sequence[int]) -> bool:
+    def _can_tile(self, targets: Sequence[int]) -> bool:
         n = len(self._dims)
         return (
-            self._state is not None
-            and self._state.ndim == 1  # operator engines reuse apply on 2-D maps
+            self._raw_state is not None
+            and self._raw_state.ndim == 1  # operator engines reuse apply on 2-D maps
             and n >= self._TILE_BITS
             and (1 << n) * 16 > self._TILE_MIN_BYTES
-            and len(targets) <= 2
+            and len(targets) <= 3
             and all(dim == 2 for dim in self._dims)
         )
 
-    def _flush_pending(self) -> None:
-        pending = self._pending
-        if not pending:
-            return
-        self._pending, self._pending_bits = [], frozenset()
-        if len(pending) == 1:
-            self._apply_now(pending[0])
-            return
-        n = len(self._dims)
-        tile = set(range(self._COALESCED_BITS))
-        for step in pending:
-            tile.update(step.target_indices)
-        for q in range(n):
-            if len(tile) == self._TILE_BITS:
-                break
-            tile.add(q)
-        tile_bits = np.array(sorted(tile), dtype=np.int64)
-        rest_bits = np.array([q for q in range(n) if q not in tile], dtype=np.int64)
+    def _apply_tile_batch(self, pending: list[ApplyMatrixStep]) -> None:
+        """Apply queued qubit gates tile by tile in cache (`_apply_tiles`)."""
+        tile, rest = self._tile_bits(pending)
+        tile_bits = np.array(tile, dtype=np.int64)
+        rest_bits = np.array(rest, dtype=np.int64)
         position = {int(q): i for i, q in enumerate(tile_bits)}
         count = len(pending)
         codes = np.empty(count, dtype=np.int64)
-        firsts = np.empty(count, dtype=np.int64)
-        seconds = np.empty(count, dtype=np.int64)
+        firsts = np.zeros(count, dtype=np.int64)
+        seconds = np.zeros(count, dtype=np.int64)
         widths = np.empty(count, dtype=np.int64)
         matrices = np.zeros((count, 4, 4), dtype=np.complex128)
         columns = np.zeros((count, 4), dtype=np.int64)
-        values = np.zeros((count, 4), dtype=np.complex128)
+        values = np.zeros((count, 8), dtype=np.complex128)
+        controls = np.zeros((count, 4), dtype=np.int64)
+        diagonal_bits = np.zeros((count, 3), dtype=np.int64)
         for g, step in enumerate(pending):
-            code, step_columns, step_values = self._resolve_structure(step)
-            targets = step.target_indices
-            dim = 1 << len(targets)
-            codes[g], widths[g] = code, len(targets)
-            firsts[g], seconds[g] = position[targets[0]], position[targets[-1]]
-            matrices[g, :dim, :dim] = step.matrix
+            form = self._tile_form_of(step)
+            controls[g] = self._tile_gate_masks(step, position)
+            if form.diagonal:
+                codes[g], widths[g] = _GLOBAL_DIAGONAL, len(step.target_indices)
+                diagonal_bits[g, : widths[g]] = self._tile_diagonal_bits(step, position)
+                values[g, : len(form.matrix)] = form.matrix
+                continue
+            code, step_columns, step_values = self._resolve_residual(step, form)
+            active = [step.target_indices[p] for p in form.active]
+            dim = 1 << len(active)
+            codes[g], widths[g] = code, len(active)
+            firsts[g], seconds[g] = position[active[0]], position[active[-1]]
+            matrices[g, :dim, :dim] = form.matrix
             columns[g, :dim] = step_columns
             values[g, :dim] = step_values
         self._state = _apply_tiles(
@@ -1917,7 +2051,25 @@ class NumbaSVEngine(NumpySVEngine):
             matrices,
             columns,
             values,
+            controls,
+            diagonal_bits,
         )
+
+    def _resolve_residual(self, step, form) -> tuple[int, np.ndarray, np.ndarray]:
+        """`_resolve_structure` of a step's tile residual: the gate itself when
+        nothing was factored out, so a declared-dense key still skips the scan."""
+        if not form.controls:
+            return self._resolve_structure(step)
+        cached = self._structure_cache.get(("residual", id(step)))
+        if cached is not None and cached[0] is step:
+            return cached[1]
+        d = form.matrix.shape[0]
+        columns = np.empty(d, dtype=np.int64)
+        values = np.empty(d, dtype=np.complex128)
+        code = int(_classify_matrix(form.matrix, columns, values))
+        resolved = (code, columns, values)
+        self._structure_cache[("residual", id(step))] = (step, resolved)
+        return resolved
 
     def materialize_execution(
         self,
@@ -2020,25 +2172,12 @@ class NumbaSVEngine(NumpySVEngine):
         self._structure_cache[id(step)] = (step, resolved)
         return resolved
 
-    def apply(self, step: ApplyMatrixStep) -> None:
-        """Apply one plan step - the standard path (key-aware, cached).
-
-        Qubit gates on large statevectors are queued for cache tiles.
-        """
-        targets = step.target_indices
-        if not self._tileable(targets):
-            self._flush_pending()
-            self._apply_now(step)
-            return
-        bits = self._pending_bits | frozenset(targets)
-        if len(bits | frozenset(range(self._COALESCED_BITS))) > self._TILE_BITS:
-            self._flush_pending()
-            bits = frozenset(targets)
-        self._pending.append(step)
-        self._pending_bits = bits
-
     def _apply_now(self, step: ApplyMatrixStep) -> None:
-        """Apply one step immediately through the per-gate coset kernels."""
+        """Apply one plan step through the per-gate coset kernels.
+
+        The standard path (key-aware, cached); `_TileQueue.apply` calls it for
+        steps that cannot be tiled and for single queued steps.
+        """
         code, columns, values = self._resolve_structure(step)
         self._state = self._launch_resolved(
             self.state, step.matrix, step.target_indices, code, columns, values

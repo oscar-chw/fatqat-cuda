@@ -14,6 +14,7 @@ their run configuration ("one GPU", "CPU A, 8 threads", "CPU B, 32 threads").
 | `scaling-r9.json` | r9 engine, GPU rows, each checked against the CPU rows of `scaling.json` | `perf/scaling.py --runtimes cuda --reference scaling.json` |
 | `scaling-r9-cpu.json` | r9 engine, CPU statevector rows (Numba cache tiles) | `perf/scaling.py --runtimes numba` |
 | `ab-r8-r9.json` | Same-run A/B of the r8 and r9 GPU engines, with GPU pool and host memory | `perf/scaling.py --child`, arms alternating |
+| `ab-unitary-tiles.json` | Same-run A/B of the CUDA unitary method without and with gate tiles | `perf/scaling.py --child`, arms alternating |
 | `cpu-tiles.json` | Numba gate core, per-gate passes vs cache tiles, two CPUs | same-process A/B of `NumbaSVEngine` variants |
 | `simplify.json` | `simplify=True`: speed on a Clifford-rich circuit, and accuracy with and without it | public Estimator calls; extended-precision and 60-digit references |
 

@@ -29,7 +29,6 @@ from datetime import date
 import json
 import os
 from pathlib import Path
-import resource
 import statistics
 import subprocess
 import sys
@@ -68,6 +67,27 @@ def _program(fq, ops, n):
         for q in range(layer % 2, n - 1, 2):
             program.add(ops.CX, (q, q + 1))
     return program
+
+
+def _quartiles(samples: list[float]) -> list[float]:
+    """Q1, median, Q3 within the measured range.
+
+    The default "exclusive" method extrapolates beyond the data for small
+    samples (two warm calls can give a negative Q1), so "inclusive" is used.
+    """
+    if len(samples) < 2:
+        return [samples[0]] * 3
+    return statistics.quantiles(samples, n=4, method="inclusive")
+
+
+def _peak_rss_mib() -> float | None:
+    """Peak resident memory of this process; None where the OS has no rusage."""
+    try:
+        import resource  # pylint: disable=import-outside-toplevel
+    except ImportError:  # Windows has no resource module
+        return None
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / 2**20 if sys.platform == "darwin" else peak / 2**10
 
 
 def _fingerprint(np, value) -> list[float]:
@@ -135,8 +155,7 @@ def child(args) -> None:
         value = execute()
         times.append(time.perf_counter() - start)
     # Resources, read before the fingerprint allocates its own probe arrays.
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    peak_rss_mib = peak / 2**20 if sys.platform == "darwin" else peak / 2**10
+    peak_rss_mib = _peak_rss_mib()
     gpu_pool_mib = None
     if args.runtime == "cuda":
         import cupy  # pylint: disable=import-outside-toplevel
@@ -148,7 +167,7 @@ def child(args) -> None:
     else:
         fingerprint = _fingerprint(np, value)
     warm = times[1:]
-    quartiles = statistics.quantiles(warm, n=4) if len(warm) >= 2 else [warm[0]] * 3
+    quartiles = _quartiles(warm)
     print(
         json.dumps(
             {

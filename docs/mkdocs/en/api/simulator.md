@@ -91,11 +91,13 @@ serially. Unitary and superoperator execution follow the method restrictions
 above. Parameter sweeps and state observables are supported within these
 limits; readout confusion remains a classical reporting operation.
 
-CUDA accepts `auto` or `serial` parallelism controls, `max_workers=None`, and
-`fusion=False`; CPU workers and fusion are rejected. The superconducting
+CUDA accepts `auto` or `serial` parallelism controls, `max_workers=None`,
+`fusion=False` and either `simplify` value; CPU workers and fusion are
+rejected. The superconducting
 matrix simulators inherit this coverage. `AtomArraySimulator` rejects CUDA,
 and pulse emulation has no CUDA runtime. `device_id=None` selects GPU 0 for
-CUDA; CPU runtimes require `None`. Availability failures occur at execution
+CUDA, and a tuple of distinct ordinals spreads `run_sweep` rows over those GPUs;
+CPU runtimes require `None`. Availability failures occur at execution
 and are captured in an ERROR Job. See the [CUDA runtime](cupy-simulator.md) for
 installation, device selection, memory, Estimator transfers and precision.
 
@@ -111,6 +113,7 @@ values are case-sensitive.
 | `kernel_parallelism` | `"auto"` | `"auto"`, `"serial"`, or `"threads"`. Threads require Numba and cannot be requested together with parallel shots. |
 | `max_workers` | `None` | `None` or a positive `int`. It caps the selected parallel mode; `1` conflicts with an explicitly parallel request. |
 | `fusion` | `False` | A `bool`. `True` combines compatible adjacent operations and is supported by Numba for `density_matrix`, `unitary`, and `superop`. |
+| `simplify` | `False` | A `bool`. `True` merges and cancels gates whose matrices contain only `0`, `±1` and `±i` with one nonzero per row and column, such as Paulis, `S`, `CX` and `SWAP` (`X` then `X` is removed; `S` then `S` becomes `Z`). Other gates are never merged or moved, and measurements, resets and channels are never crossed. Supported by every runtime and method; Numba and CUDA results have the same values, NumPy results may differ in the last bit. Not supported by `run_sweep`. |
 
 Automatic selection uses at most one parallel axis. An explicit unsupported
 choice raises an error instead of falling back. A run is eligible for explicit

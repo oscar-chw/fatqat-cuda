@@ -429,7 +429,9 @@ def main(argv: list[str] | None = None) -> int:
         "--simplify",
         action="store_true",
         help="run every arm with simulation_config simplify=True; the oracle "
-        "still evolves the original, unsimplified stored coefficients",
+        "still evolves the circuit as written, which these circuits of "
+        "Haar-random gates leave unchanged (perf/simplify_check.py measures "
+        "simplification itself)",
     )
     args = parser.parse_args(argv)
 

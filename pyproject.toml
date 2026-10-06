@@ -69,6 +69,9 @@ test-full = [
     {include-group = "dev"},
     {include-group = "qiskit"},
 ]
+# The precision and simplification harnesses in perf/ (60-digit references).
+# Without it their tests skip, so the fork's CI installs it.
+perf = ["mpmath>=1.3"]
 # Formatting (black) and static analysis (pylint). Used by the Lint CI workflow;
 # configuration lives in [tool.black] and [tool.pylint].
 lint = ["black>=24", "pylint>=3"]

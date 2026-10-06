@@ -90,6 +90,31 @@ backend instance is not safe for concurrent calls. To run independent circuits
 on several GPUs, use one instance in each process, with a distinct device ID or
 `CUDA_VISIBLE_DEVICES` selection. This does not distribute one state across GPUs.
 
+For parameter sweeps, `device_id` also accepts a tuple of distinct ordinals.
+`run_sweep` then runs the rows on every listed GPU, one worker thread and engine
+per GPU, and returns results in input order; each row is computed exactly as it
+would be on one GPU. `run` uses the first listed device. If a row fails, the
+Job reports the earliest failing row, although rows on other GPUs may already
+have run. The speed-up is less than the number of GPUs, because part of each
+row's work runs in Python one thread at a time.
+
+```python
+import numpy as np
+import fatqat as fq
+import fatqat.operations as ops
+from fatqat.parameters import Parameter
+from fatqat.simulator import Simulator
+
+theta = Parameter("theta")
+program = fq.Program(2, 2)
+program.add(ops.RY(theta), 0)
+program.add(ops.CX, (0, 1))
+program.measure_all()
+results = Simulator(method="SV", runtime="cuda", device_id=(0, 1)).run_sweep(
+    program, {theta: np.linspace(0, np.pi, 8)}, shots=1000
+).result()  # eight Results, in the order of the theta values
+```
+
 The engine retains its most recent device state. Matrix uploads are
 released after each public execution; CuPy's allocator may retain freed blocks.
 Separate live allocation from reserved pool memory when sizing a workload.

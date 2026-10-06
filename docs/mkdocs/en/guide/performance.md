@@ -212,6 +212,18 @@ For eligible combinations and error behavior, see
 [Simulator runtime and execution](../api/simulator.md). Fusion is opt-in,
 and explicit parallel modes can be rejected when the Program cannot use them.
 
+## Remove redundant Clifford gates with `simplify`
+
+Compiled or hand-written circuits often contain pairs that cancel, such as
+`X` then `X` or `CX` then `CX`, or sequences that collapse, such as `S` then
+`S` (which is `Z`) or three `CX` gates that form a `SWAP`. With
+`simulation_config={"simplify": True}`, these are merged before execution on
+every runtime, so the state is updated fewer times. Only gates whose matrices
+contain `0`, `±1` and `±i` take part; applying them never rounds, so the
+Numba and CUDA results have the same values with or without `simplify`.
+Rotations and `H` are left untouched, so circuits made only of rotations see
+no change. Measure the gain on your own circuit, as above.
+
 ## Account for physical emulation separately
 
 Hamiltonian emulators add costs that a circuit-level array-size estimate does

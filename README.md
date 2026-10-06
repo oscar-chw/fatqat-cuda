@@ -139,7 +139,7 @@ Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `
 - **complex128, not complex64.** Twice the memory and bandwidth per amplitude, in exchange for GPU results that match the CPU engines (≤ 3.1 eps against a 60-digit reference).
 - **CuPy `RawKernel`s, not a compiled CUDA extension.** The GPU path stays an optional pip extra with nothing to build. The cost is a CuPy dependency and a compile step the first time each kernel runs (CuPy caches it on disk).
 - **Hand-written kernels only for one- and two-qubit gates.** Wider gates and mixed dimensions use CuPy tensor contraction, which is correct but not tuned.
-- **`simplify=True` merges only gates that never round.** Values stay bit-identical. Merging rotations or `H` was measured as less accurate ([why](docs/optimisations.md)), so those larger gains are given up.
+- **`simplify=True` merges only gates that never round.** Values stay the same on Numba and CUDA (NumPy, through BLAS, can differ in the last bit). Merging rotations or `H` was measured as less accurate ([why](docs/optimisations.md)), so those larger gains are given up.
 - **Several GPUs split `run_sweep` rows, never one state.** No traffic between GPUs, and each row is computed exactly as on one GPU. The largest state is still bounded by one GPU's memory.
 
 ## Results
@@ -153,13 +153,14 @@ for two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable
 | r9 vs r8 engine, one GPU, same run (observable) | 24–28 qubits | 2.09–2.22× faster, same memory | [ab-r8-r9.json](results/ab-r8-r9.json) |
 | One GPU vs CPU, both r9 (observable) | 24–28 qubits | 35–42× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
 | One GPU vs CPU, both r9 (full state copied back) | 24–28 qubits | 16–25× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
-| One GPU vs CPU, noisy density matrix and unitary (unchanged in r9) | 11–14 qubits | 2.6–12.6× faster | [scaling.json](results/scaling.json) |
+| One GPU vs CPU, noisy density matrix and unitary (r8 code) | 11–14 qubits | 2.6–12.6× faster | [scaling.json](results/scaling.json) |
+| Unitary method with gate tiles vs without, one GPU, same run | 12–14 qubits | 1.28–1.42× faster, same memory | [ab-unitary-tiles.json](results/ab-unitary-tiles.json) |
 | CPU only: Numba cache tiles vs per-gate passes, gate core | 22–26 qubits | 1.23–1.27× (CPU A), 1.30–1.55× (CPU B) | [cpu-tiles.json](results/cpu-tiles.json) |
 | `simplify=True` on a Clifford-rich circuit, identical values | 22–28 qubits | CPU 1.7–1.9×, GPU 1.0–1.7× | [simplify.json](results/simplify.json) |
 | Accuracy vs a 60-digit reference, 110 circuits, all four methods | up to 5 qubits | ≤ 3.1 eps on every runtime; GPU vs Numba −0.045 ± 0.031 eps | [precision.json](results/precision.json) |
 
 - **The GPU does not always win.** Density-matrix and unitary runs at 6–8 qubits were 0.22–1.08× (mostly slower on the GPU), and noisy density matrices gain least (2.6–8× at 11–14 qubits).
-- **r9 is not faster everywhere.** Density-matrix and unitary GPU code did not change (0.96–1.04× in the same-run comparison).
+- **r9 is not faster everywhere.** Density-matrix GPU code did not change (0.96–1.04× in the same-run comparison), and the unitary gain is GPU-only: a simple CPU counterpart (narrower column blocks) was measured slower and not adopted.
 - **Accuracy is equal, not better.** GPU and Numba errors are statistically indistinguishable; NumPy is about 0.1 eps more accurate than both. Tiles and simplification give bit-identical results on Numba and CUDA.
 
 How each change keeps accuracy and memory: [docs/optimisations.md](docs/optimisations.md). Every row, r7/r8 history and how to rerun: [docs/benchmarks.md](docs/benchmarks.md).
@@ -211,7 +212,7 @@ Docs: see [docs/README.md](docs/README.md).
 
 - The baseline decides the headline: the same 24-qubit full-state run was about 22× faster than 4 CPU threads but about 3× faster than all cores.
 - A GPU is not a free win: at 4 qubits the superoperator was a tie or a small loss, and small circuits can be faster on the CPU.
-- Precision has to be tested, not assumed: against a 60-digit reference the GPU stays within 8 machine epsilons of the CPU, but is not better in every case.
+- Precision has to be tested, not assumed: against a 60-digit reference every runtime stays within 3.1 machine epsilons (r9), and GPU and compiled-CPU errors are statistically indistinguishable, but the GPU is not more accurate.
 - Swapping only the numerical engine, behind FatQat's own validation and lowering, kept `Program`, `Job` and `Result` unchanged and the CPU engines bit-identical on eight fixtures.
 
 ## Credits and licence

@@ -15,11 +15,13 @@ import numpy as np
 
 from ...errors import BackendValidationError
 from ..._backends.steps import ApplyMatrixStep, MeasurementStep
+from .base import _TileQueue
 from .np import (
     NumpySVEngine,
     NumpyDMEngine,
     NumpyUnitaryEngine,
     NumpySuperopEngine,
+    _contract_local,
     _strides,
 )
 
@@ -207,14 +209,6 @@ class _CupyRuntime:
             cached = (*cached, (diagonal, permutation, fixed))
             self._matrix_cache[id(matrix)] = cached
         return device_matrix, cached[2]
-
-    def _conjugate_matrix(self, matrix):
-        self._qubit_matrix(matrix)
-        cached = self._matrix_cache[id(matrix)]
-        if len(cached) == 3:
-            cached = (*cached, cached[1].conj())
-            self._matrix_cache[id(matrix)] = cached
-        return cached[3]
 
     def _small_qubit_apply(self, state, matrix, targets, structure):
         """Update disjoint pairs/quartets without transposing the full state."""
@@ -460,15 +454,18 @@ class _CupyStateRuntime(_CupyRuntime):
             return cp.asnumpy(cp.searchsorted(cdf, uniforms, side="right"))
 
 
-class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
-    """One device, complex128, ideal single-pass state vectors only."""
+# Ints per gate in the tile kernel's descriptor (see `_apply_tile_batch`).
+_TILE_GATE_INTS = 12
 
-    _supported_execution_shapes = frozenset({"single_pass"})
-    _supports_shot_workers = False
-    _supports_resident_expectation = True
 
-    # Gate blocking. Each one- or two-qubit gate is otherwise one full pass
-    # over the state in global memory, and those passes dominate large runs.
+class _GateTiles(_TileQueue):
+    """Queue runs of qubit gates and apply them tile by tile in shared memory."""
+
+    # Gate tiles, shared by the statevector and unitary engines. Each one- or
+    # two-qubit gate is otherwise one full pass over the state in global
+    # memory, and those passes dominate large runs. ``_tile_layout`` places
+    # the gate targets among the flat state's index bits (a unitary's gates
+    # act on its row bits, above the column bits).
     # Consecutive qubit gates whose targets fit in one tile of _TILE_BITS
     # qubits are queued and applied together: each CUDA block loads one tile
     # into shared memory, applies the queued gates in order with the same
@@ -479,33 +476,11 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
     #
     # Tiling engages only for states larger than the device's L2 cache
     # (_TILE_MIN_BYTES=None). Below that, per-gate passes are served from L2
-    # and were measured as fast or faster than tiles (20-22 qubits on a
-    # 128 MiB-L2 device: 0.88-1.01x), while 24-26 qubits gained 2.2-2.4x.
+    # and were measured as fast as tiles or faster, while states several
+    # times larger than L2 gained 2.2-2.4x.
     _TILE_BITS = 11
     _COALESCED_BITS = 5
     _TILE_MIN_BYTES = None
-
-    def __init__(self, device_id: int = 0):
-        super().__init__("cupy-sv", device_id=device_id)
-        self._pending = []
-        self._pending_bits = frozenset()
-
-    @property
-    def state(self):
-        # Every read of the state, including export and expectation values,
-        # first applies any queued gates.
-        self._flush_pending()
-        return super().state
-
-    @state.setter
-    def state(self, value):
-        self._flush_pending()
-        self._state = value
-
-    def initialize(self, *args, **kwargs):
-        self._pending = []
-        self._pending_bits = frozenset()
-        super().initialize(*args, **kwargs)
 
     @contextmanager
     def _execution_scope(self, policy):
@@ -515,24 +490,14 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
             # matrix cache, even when the run requested no output.
             self._flush_pending()
 
-    def apply(self, step):
-        targets = step.target_indices
-        n = len(self._dims)
-        if (
-            n < self._TILE_BITS
-            or (1 << n) * 16 <= self._tile_min_bytes
-            or not self._uses_qubit_kernel(targets)
-        ):
-            self._flush_pending()
-            super().apply(step)
-            return
-        low = frozenset(range(self._COALESCED_BITS))
-        bits = self._pending_bits | frozenset(targets)
-        if len(bits | low) > self._TILE_BITS:
-            self._flush_pending()
-            bits = frozenset(targets)
-        self._pending.append(step)
-        self._pending_bits = bits
+    def _can_tile(self, targets):
+        _offset, total = self._tile_layout()
+        return (
+            total >= self._TILE_BITS
+            and (1 << total) * 16 > self._tile_min_bytes
+            and len(targets) <= 3
+            and all(d == 2 for d in self._dims)
+        )
 
     @cached_property
     def _tile_min_bytes(self):
@@ -540,46 +505,41 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
             return self._TILE_MIN_BYTES
         return self._cp.cuda.Device(self.device_id).attributes["L2CacheSize"]
 
-    def _flush_pending(self):
-        pending = self._pending
-        if not pending:
-            return
-        self._pending, self._pending_bits = [], frozenset()
-        if len(pending) == 1:
-            super().apply(pending[0])
-        else:
-            self._apply_tile_batch(pending)
-
     def _apply_tile_batch(self, steps):
         """Apply queued qubit gates tile by tile in shared memory."""
         cp = self._cp
-        n = len(self._dims)
-        tile = set(range(self._COALESCED_BITS))
-        for step in steps:
-            tile.update(step.target_indices)
-        for q in range(n):
-            if len(tile) == self._TILE_BITS:
-                break
-            tile.add(q)
-        tile = sorted(tile)
-        rest = [q for q in range(n) if q not in tile]
+        tile, rest = self._tile_bits(steps)
         position = {q: i for i, q in enumerate(tile)}
-        descriptors, matrices, offset = [], [], 0
+        descriptors, masks, matrices, matrix_offset = [], [], [], 0
+        offset, _total = self._tile_layout()
         for step in steps:
-            _device, (diagonal, permutation, fixed) = self._qubit_matrix(step.matrix)
-            kind = 0 if diagonal else 1 if permutation >= 0 else 2
-            targets = step.target_indices
+            form = self._tile_form_of(step)
+            local_mask, local_value, rest_mask, rest_value = self._tile_gate_masks(
+                step, position
+            )
+            masks += [rest_mask, rest_value]
+            diagonal_bits = [0, 0, 0]
+            if form.diagonal:
+                kind, first, second, permutation, fixed = 3, 0, 0, -1, 0
+                width = len(step.target_indices)
+                diagonal_bits[:width] = self._tile_diagonal_bits(step, position)
+            else:
+                _device, (diagonal, permutation, fixed) = self._qubit_matrix(
+                    form.matrix
+                )
+                kind = 0 if diagonal else 1 if permutation >= 0 else 2
+                active = [offset + step.target_indices[p] for p in form.active]
+                width, first, second = (
+                    len(active),
+                    position[active[0]],
+                    position[active[-1]],
+                )
             descriptors += [
-                kind,
-                len(targets),
-                position[targets[0]],
-                position[targets[-1]],
-                offset,
-                permutation,
-                fixed,
-            ]
-            matrices.append(np.asarray(step.matrix, dtype=np.complex128).ravel())
-            offset += matrices[-1].size
+                kind, width, first, second, matrix_offset, permutation, fixed,
+                local_mask, local_value, *diagonal_bits,
+            ]  # fmt: skip
+            matrices.append(np.asarray(form.matrix, dtype=np.complex128).ravel())
+            matrix_offset += matrices[-1].size
         key = ("tile", self._TILE_BITS)
         if key not in self._kernels:
             source = r"""
@@ -591,7 +551,8 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
             }
             extern "C" __global__ void gate_tile(
                 double2* state, const double2* matrices, const int* gates,
-                int n_gates, const int* tile_bits, const int* rest_bits, int n_rest) {
+                const unsigned long long* masks, int n_gates, const int* tile_bits,
+                const int* rest_bits, int n_rest) {
                 extern __shared__ double2 tile[];
                 const int size = 1 << TILE_BITS;
                 unsigned long long base = 0;
@@ -601,12 +562,50 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
                     tile[j] = state[tile_index(base, j, tile_bits)];
                 __syncthreads();
                 for (int g = 0; g < n_gates; ++g) {
-                    const int* d = gates + 7 * g;
+                    // Controls outside the tile are the same for the whole
+                    // block, so every thread skips (and syncs) together.
+                    if ((base & masks[2 * g]) != masks[2 * g + 1]) continue;
+                    const int* d = gates + GATE_INTS * g;
                     const int kind = d[0], width = d[1], first = d[2], second = d[3];
                     const int permutation = d[5], fixed = d[6], dim = 1 << width;
+                    const int local_mask = d[7], local_value = d[8];
                     const double2* matrix = matrices + d[4];
-                    if (kind == 0) {
+                    if (kind == 3) {
+                        // A diagonal anywhere: fold its bits outside the tile
+                        // into the row, leaving entries chosen by tile bits.
+                        int fixed_row = 0, inside = 0, places[3], rows[3];
+                        for (int p = 0; p < width; ++p) {
+                            const int bit = d[9 + p];
+                            if (bit < 0) {
+                                if ((base >> (-1 - bit)) & 1ULL)
+                                    fixed_row |= 1 << (width - 1 - p);
+                            } else {
+                                places[inside] = bit;
+                                rows[inside++] = width - 1 - p;
+                            }
+                        }
+                        double2 local[8];
+                        bool trivial = true;
+                        for (int r = 0; r < (1 << inside); ++r) {
+                            int row = fixed_row;
+                            for (int t = 0; t < inside; ++t)
+                                if ((r >> t) & 1) row |= 1 << rows[t];
+                            local[r] = matrix[row];
+                            trivial = trivial && local[r].x == 1.0 && local[r].y == 0.0;
+                        }
+                        if (trivial) continue;  // uniform over the block
                         for (int i = threadIdx.x; i < size; i += blockDim.x) {
+                            int r = 0;
+                            for (int t = 0; t < inside; ++t)
+                                if ((i >> places[t]) & 1) r |= 1 << t;
+                            double2 a = tile[i], m = local[r];
+                            // A factor of exactly 1 changes nothing.
+                            if (m.x == 1.0 && m.y == 0.0) continue;
+                            tile[i] = make_double2(m.x*a.x - m.y*a.y, m.x*a.y + m.y*a.x);
+                        }
+                    } else if (kind == 0) {
+                        for (int i = threadIdx.x; i < size; i += blockDim.x) {
+                            if ((i & local_mask) != local_value) continue;
                             int row = (i >> first) & 1;
                             if (width == 2) row = 2 * row + ((i >> second) & 1);
                             double2 a = tile[i], m = matrix[row * dim + row];
@@ -622,6 +621,7 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
                                 mask = (1 << hi) - 1;
                                 local = (local & mask) | ((local >> hi) << (hi + 1));
                             }
+                            if ((local & local_mask) != local_value) continue;
                             double2 values[4];
                             int indices[4];
                             for (int r = 0; r < dim; ++r) {
@@ -655,6 +655,7 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
             }
             """
             source = source.replace("TILE_BITS", str(self._TILE_BITS))
+            source = source.replace("GATE_INTS", str(_TILE_GATE_INTS))
             # No fast-math or reduced-precision mode; ordinary binary64 ops.
             kernel = cp.RawKernel(source, "gate_tile")
             shared = (1 << self._TILE_BITS) * 16
@@ -670,6 +671,7 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
                 state,
                 cp.asarray(np.concatenate(matrices)),
                 cp.asarray(np.array(descriptors, dtype=np.int32)),
+                cp.asarray(np.array(masks, dtype=np.uint64)),
                 np.int32(len(steps)),
                 cp.asarray(np.array(tile, dtype=np.int32)),
                 cp.asarray(np.array(rest, dtype=np.int32)),
@@ -678,6 +680,19 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
             shared_mem=(1 << self._TILE_BITS) * 16,
         )
         self._state = state
+
+
+class CupySVEngine(  # pylint: disable=too-many-ancestors
+    _GateTiles, _CupyStateRuntime, NumpySVEngine
+):
+    """One device, complex128, ideal single-pass state vectors only."""
+
+    _supported_execution_shapes = frozenset({"single_pass"})
+    _supports_shot_workers = False
+    _supports_resident_expectation = True
+
+    def __init__(self, device_id: int = 0):
+        super().__init__("cupy-sv", device_id=device_id)
 
     def materialize_execution(self, plan, **kwargs):
         if any(
@@ -726,18 +741,8 @@ class CupySVEngine(_CupyStateRuntime, NumpySVEngine):
                 return self._small_qubit_apply(state, device_matrix, targets, structure)
             m = device_matrix.reshape(local_dims + local_dims)
             axes = [n - 1 - q for q in targets]
-            out = cp.tensordot(
-                m,
-                state.reshape(self._reversed_dims),
-                axes=(list(range(k, 2 * k)), axes),
-            )
-            remaining = [ax for ax in range(n) if ax not in axes]
-            perm = [0] * n
-            for j, ax in enumerate(axes):
-                perm[ax] = j
-            for j, ax in enumerate(remaining):
-                perm[ax] = k + j
-            return cp.transpose(out, perm).reshape(-1)
+            tensor = state.reshape(self._reversed_dims)
+            return _contract_local(m, tensor, axes, n, k, xp=cp).reshape(-1)
 
     def _device_probabilities(self):
         cp = self._cp
@@ -797,8 +802,8 @@ class CupyDMEngine(_CupyStateRuntime, NumpyDMEngine):
 
 
 # Like its NumPy parent, an operator engine deliberately does not sample.
-class CupyUnitaryEngine(  # pylint: disable=abstract-method
-    _CupyRuntime, NumpyUnitaryEngine
+class CupyUnitaryEngine(  # pylint: disable=abstract-method,too-many-ancestors
+    _GateTiles, _CupyRuntime, NumpyUnitaryEngine
 ):
     """CUDA local-operator application to all unitary columns together."""
 
@@ -806,6 +811,12 @@ class CupyUnitaryEngine(  # pylint: disable=abstract-method
 
     def __init__(self, device_id: int = 0):
         super().__init__("cupy-unitary", device_id=device_id)
+
+    def _tile_layout(self):
+        # Row-major (size, size): a gate acts on the row bits, which sit
+        # above the n column bits that every gate leaves alone.
+        n = len(self._dims)
+        return n, 2 * n
 
     def _apply_local(self, state, matrix, targets):
         if self._uses_qubit_kernel(targets):

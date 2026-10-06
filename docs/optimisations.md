@@ -6,7 +6,7 @@ as accurate as the code it replaces, and it uses no more memory.
 
 | Change | Runtimes | Accuracy | Memory |
 | --- | --- | --- | --- |
-| Gate tiles | CUDA (shared memory) and Numba (CPU cache) statevectors | bit-identical to the per-gate kernels | unchanged; tiles live in on-chip memory |
+| Gate tiles | CUDA statevectors and unitaries (shared memory), Numba statevectors (CPU cache) | bit-identical to the per-gate kernels | unchanged; tiles live in on-chip memory |
 | `simulation_config={"simplify": True}` | every runtime and method | identical values on Numba and CUDA | unchanged; a planning step on the host |
 | `device_id=(0, 1, ...)` for `run_sweep` | CUDA | bit-identical to a one-GPU sweep | one copy of the state per GPU used |
 
@@ -39,7 +39,10 @@ flowchart TB
   classDef key  fill:#ede9fe,stroke:#6d28d9,color:#0b1220,stroke-width:2px
 ```
 
-Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`CupySVEngine.apply`, `_apply_tile_batch`), `src/fatqat/simulator/_engine/nb.py` (`NumbaSVEngine.apply`, `_flush_pending`, `_apply_tiles`); tests: `tests/simulator/test_cuda_gate_tiles.py`, `tests/simulator/test_numba_tiles.py`.
+A unitary's gates act on its row index, so the same queue serves the CUDA
+unitary method with the target bits offset above the column bits.
+
+Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_GateTiles`, shared by `CupySVEngine` and `CupyUnitaryEngine`), `src/fatqat/simulator/_engine/nb.py` (`NumbaSVEngine.apply`, `_flush_pending`, `_apply_tiles`); tests: `tests/simulator/test_cuda_gate_tiles.py`, `tests/simulator/test_numba_tiles.py`.
 
 - The tile always contains the lowest qubits (5 on the GPU, 3 on the CPU), so
   every read covers contiguous memory.
@@ -94,6 +97,11 @@ All from 2026-10-06; every figure links its evidence file.
   statevector 1.36–1.77× (24–28). Density-matrix and unitary workloads, whose
   code did not change, were 0.96–1.04×, which is the run-to-run noise. GPU
   memory pool and host memory were equal in every pair.
+- **Unitary tiles** ([ab-unitary-tiles.json](../results/ab-unitary-tiles.json)):
+  1.29× (12 qubits), 1.28× (13) and 1.42× (14) in the same run on one GPU,
+  equal memory; 0.97× at 11 qubits, where the state fits in L2 and tiles do
+  not engage (noise). The CPU unitary engine is unchanged: splitting its
+  column blocks finer to fit the cache was measured 0.38–0.91× and dropped.
 - **CPU tiles** ([cpu-tiles.json](../results/cpu-tiles.json)): gate-core
   speed-up of the default 12-qubit tile over per-gate passes, measured in
   the same process on two machines.

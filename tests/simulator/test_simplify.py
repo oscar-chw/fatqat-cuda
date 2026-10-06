@@ -6,14 +6,21 @@ including mixed radix, reordered targets, channels, measurements and resets;
 public tests confirm every runtime accepts the option.
 """
 
-from math import prod
+from fractions import Fraction
+from math import isqrt, prod
 
 import numpy as np
 import pytest
 
 import fatqat as fq
 import fatqat.operations as ops
-from fatqat._backends.simplify import simplify_plan
+from fatqat._backends.simplify import (
+    _Block,
+    _matmul,
+    _Merger,
+    _reorder,
+    simplify_plan,
+)
 from fatqat._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
@@ -73,12 +80,11 @@ def test_exact_inverse_pairs_are_removed():
 
 
 def test_rounding_gates_are_never_merged_and_phase_is_kept():
-    # H.H, rotations and an exactly representable but dense product (RY.Z)
-    # would each change rounding; they are left exactly as written.
+    # A custom H (no declared identity) and rotations round; merging any two
+    # would round their product, so they are left exactly as written.
     for plan in (
         (_gate(_H, 0), _gate(_H, 0)),
         (_gate(_rx(0.3), 0), _gate(_rz(0.7), 0)),
-        (_gate(_rz(0.3), 0), _gate(_Z, 0)),
         tuple(_gate(_rz(1.7e-15), 0) for _ in range(50)),
     ):
         assert simplify_plan(plan, (2,)) == plan
@@ -112,11 +118,63 @@ def test_runs_merge_past_gates_on_other_subsystems_in_order():
     assert simplified[0].kernel_key is None
 
 
-def test_non_diagonal_gate_does_not_pass_an_overlapping_gate():
+def test_one_qubit_unit_gates_are_absorbed_into_a_two_qubit_block():
+    # X on the target of CZ does not commute with it, but all three are
+    # unit gates, so their exact product replaces them.
     plan = (_gate(_X, 1), _gate(_CZ, 0, 1), _gate(_X, 1))
-    assert len(simplify_plan(plan, (2, 2))) == 3
-    plan = (_gate(_S, 1), _gate(_CX, 0, 1), _gate(_S.conj().T, 1))
-    assert len(simplify_plan(plan, (2, 2))) == 3  # CX is not diagonal
+    simplified = simplify_plan(plan, (2, 2))
+    assert len(simplified) == 1
+    xi = np.kron(np.eye(2), _X)
+    np.testing.assert_array_equal(simplified[0].matrix, xi @ _CZ @ xi)
+
+
+def test_rounding_gates_are_never_crossed_by_a_non_commuting_gate():
+    dense = _gate(_H, 1)  # no declared identity: an ordinary rounding gate
+    plan = (_gate(_X, 1), dense, _gate(_X, 1))
+    assert simplify_plan(plan, (2, 2)) == plan
+
+
+@pytest.mark.parametrize(
+    ("plan", "dims", "expected"),
+    [
+        ((_gate(_rz(0.3), 0), _gate(_Z, 0)), (2,), _Z @ _rz(0.3)),
+        ((_gate(_X, 0), _gate(_rz(0.3), 0), _gate(_X, 0)), (2,), _X @ _rz(0.3) @ _X),
+        (
+            (_gate(_CX, 0, 1), _gate(_rz(0.3), 1), _gate(_CX, 0, 1)),
+            (2, 2),
+            _CX @ np.kron(np.eye(2), _rz(0.3)) @ _CX,
+        ),
+    ],
+    ids=["RZ.Z", "X.RZ.X", "CX.RZ.CX"],
+)
+def test_a_rotation_conjugated_by_sign_permutations_is_one_exact_gate(
+    plan, dims, expected
+):
+    # Entries of +-1 only move and negate the rotation's entries: the product
+    # is exact, and applying it multiplies each amplitude exactly as before.
+    (step,) = simplify_plan(plan, dims)
+    targets = tuple(range(len(dims)))
+    np.testing.assert_array_equal(
+        _reorder(step.matrix, step.target_indices, targets, dims), expected
+    )
+
+
+def test_a_rotation_does_not_move_past_an_i_phase_to_merge():
+    # RZ commutes with CS, and CZ.RZ would be exact, but reaching CZ means RZ
+    # moving past CS: its i swaps real and imaginary parts, so with fused
+    # multiply-adds (CUDA) RZ's products would pair, and round, differently.
+    # CS cannot merge with CZ (their subsystems only overlap), so RZ would
+    # have to pass it to reach CZ.
+    cs = np.diag([1, 1, 1, 1j])
+    plan = (_gate(_CZ, 0, 1), _gate(cs, 1, 2), _gate(_rz(0.3), 1))
+    assert simplify_plan(plan, (2, 2, 2)) == plan
+
+
+def test_a_rotation_is_not_merged_with_an_i_phase():
+    # S.RZ is exact too, but S swaps real and imaginary parts, so with fused
+    # multiply-adds the rotation's products would pair differently.
+    plan = (_gate(_rz(0.3), 0), _gate(_S, 0))
+    assert simplify_plan(plan, (2,)) == plan
 
 
 def test_diagonal_gates_merge_across_diagonal_gates():
@@ -202,6 +260,208 @@ def test_an_unknown_step_is_a_global_barrier():
     sentinel = object()
     plan = (_gate(_X, 0), sentinel, _gate(_X, 0))
     assert simplify_plan(plan, (2,)) == plan
+
+
+def _lowered(build, n):
+    """The engine plan and dims of a public program built by ``build``."""
+    program = fq.Program(n)
+    build(program)
+    backend = Simulator("statevector", runtime="numpy")
+    plan, _ = backend._lower_program(program)
+    return plan, (2,) * n
+
+
+def _sqrt2_fraction(numerator, power):
+    """``numerator * sqrt(2) / 2**power`` to 300 bits, as a Fraction."""
+    return Fraction(numerator * isqrt(2 << 600), 1 << (300 + power))
+
+
+@pytest.mark.parametrize(
+    ("build", "n", "expected", "targets"),
+    [
+        (lambda p: [p.add(ops.H, 0), p.add(ops.X, 0), p.add(ops.H, 0)], 1, _Z, (0,)),
+        (lambda p: [p.add(ops.H, 0), p.add(ops.Z, 0), p.add(ops.H, 0)], 1, _X, (0,)),
+        (lambda p: [p.add(ops.T, 0), p.add(ops.T, 0)], 1, _S, (0,)),
+        (lambda p: [p.add(ops.S, 0), p.add(ops.S, 0)], 1, _Z, (0,)),
+        (
+            lambda p: [
+                p.add(ops.H, 0), p.add(ops.H, 1), p.add(ops.CX, (0, 1)),
+                p.add(ops.H, 0), p.add(ops.H, 1),
+            ],  # fmt: skip
+            2,
+            _CX,
+            "reversed",
+        ),
+        (
+            lambda p: [
+                p.add(ops.CX, (0, 1)),
+                p.add(ops.CX, (0, 2)),
+                p.add(ops.CX, (0, 1)),
+            ],
+            3,
+            _CX,
+            "control 0, target 2",
+        ),
+    ],
+    ids=["HXH=Z", "HZH=X", "TT=S", "SS=Z", "HH.CX.HH=reversed CX", "CX commutation"],
+)
+def test_lecture_identities_hold_exactly(build, n, expected, targets):
+    plan, dims = _lowered(build, n)
+    simplified = simplify_plan(plan, dims)
+    assert len(simplified) == 1
+    (step,) = simplified
+    # Engine indices are reversed: public qubit q is engine subsystem n-1-q.
+    if targets == "reversed":
+        assert set(step.target_indices) == {0, 1}
+        # Control is public qubit 1 (engine 0) and target public 0 (engine 1).
+        matrix = _reorder(step.matrix, step.target_indices, (0, 1), dims)
+    elif targets == "control 0, target 2":
+        matrix = _reorder(step.matrix, step.target_indices, (2, 0), dims)
+    else:
+        assert step.target_indices == targets
+        matrix = step.matrix
+    np.testing.assert_array_equal(matrix, expected)
+
+
+def test_h_h_cancels_and_a_rounding_run_becomes_its_correctly_rounded_product():
+    plan, dims = _lowered(lambda p: [p.add(ops.H, 0), p.add(ops.H, 0)], 1)
+    assert simplify_plan(plan, dims) == ()
+    plan, dims = _lowered(
+        lambda p: [p.add(ops.H, 0), p.add(ops.T, 0), p.add(ops.H, 0)], 1
+    )
+    (step,) = simplify_plan(plan, dims)
+    # H T H = [[1 + w, 1 - w], [1 - w, 1 + w]] / 2 with w = (1 + i) / sqrt(2).
+    plus = complex(
+        float(Fraction(1, 2) + _sqrt2_fraction(1, 2)),
+        float(_sqrt2_fraction(1, 2)),
+    )
+    minus = complex(
+        float(Fraction(1, 2) - _sqrt2_fraction(1, 2)),
+        -float(_sqrt2_fraction(1, 2)),
+    )
+    np.testing.assert_array_equal(step.matrix, [[plus, minus], [minus, plus]])
+
+
+def test_a_merge_across_a_rounding_gate_must_remove_rounding():
+    rz = _gate(_rz(0.3), 0)
+    # S and Sdg would cancel across RZ, but RZ would then round in another
+    # order with nothing gained, so the unit gates stay where they are.
+    plan = (_gate(_S, 0), rz, _gate(_S.conj().T, 0))
+    assert simplify_plan(plan, (2,)) == plan
+    # T and Tdg round; cancelling them across RZ removes two roundings.
+    t, tdg = _lowered(lambda p: [p.add(ops.T, 0), p.add(ops.Tdg, 0)], 1)[0]
+    assert simplify_plan((t, rz, tdg), (2,)) == (rz,)
+
+
+def test_a_block_keeps_its_parts_when_the_product_rounds_more():
+    # Two gates of one rounding each, whose product would need four: the
+    # block must emit the parts, not the denser product.
+    t = _Block((0,), 0, (1, 1), leaf=object())
+    block = _Block((0, 1), 1, (4, 1), children=(t, t))
+    assert not block.use_product
+    assert block.cost == (2, 2)
+    assert _Block((0, 1), 1, (1, 1), children=(t, t)).use_product
+
+
+def test_commutation_is_decided_exactly_not_to_a_tolerance():
+    # x = (sqrt(2) - 1)**30 is about 3e-12: [[1, x], [0, 1]] and Z fail to
+    # commute by 2x, below any float tolerance a quick check could use.
+    merger = _Merger((2,))
+    root = np.array([-1, 1, 0, -1])  # sqrt(2) - 1 = w - w**3 - 1
+    x = np.array([1, 0, 0, 0])
+    for _ in range(30):
+        x = _matmul(x.reshape(1, 1, 4), root.reshape(1, 1, 4)).reshape(4)
+    shear = np.zeros((2, 2, 4), dtype=np.int64)
+    shear[0, 0, 0] = shear[1, 1, 0] = 1
+    shear[0, 1] = x
+    z = np.zeros((2, 2, 4), dtype=np.int64)
+    z[0, 0, 0], z[1, 1, 0] = 1, -1
+    a = merger._block((0,), merger._intern(shear, 0))
+    b = merger._block((0,), merger._intern(z, 0))
+    assert not merger._commutes(a, b)
+    assert merger._commutes(b, merger._block((0,), merger._intern(z, 0)))
+
+
+def test_unknown_steps_forget_every_known_input():
+    sentinel = object()
+    cx = _gate(_CX, 0, 1)
+    simplified = simplify_plan((sentinel, cx), (2, 2), zero_start=True)
+    assert simplified == (sentinel, cx)
+
+
+def test_real_valued_gate_matrices_are_accepted():
+    # Regression: a float64 rule crashed the unit-gate check.
+    x = ApplyMatrixStep(np.array([[0.0, 1.0], [1.0, 0.0]]), (0,))
+    assert x.matrix.dtype == np.float64
+    assert simplify_plan((x, x), (2,)) == ()
+
+
+def test_known_inputs_specialise_gates_only_from_the_zero_start():
+    cx = _gate(_CX, 0, 1)
+    # Control still |0>: the CX acts as the identity.
+    assert simplify_plan((cx,), (2, 2), zero_start=True) == ()
+    assert simplify_plan((cx,), (2, 2)) == (cx,)
+    # Control known |1>, target unknown: the CX is an X on the target.
+    h = _gate(_H, 1)
+    plan = (_gate(_X, 0), h, cx)
+    simplified = simplify_plan(plan, (2, 2), zero_start=True)
+    assert simplified[:2] == plan[:2]
+    assert simplified[2].target_indices == (1,)
+    np.testing.assert_array_equal(simplified[2].matrix, _X)
+    # A phase on a known state is kept; a phase of 1 is dropped.
+    (kept,) = simplify_plan((_gate(_X, 0), _gate(_Z, 0)), (2,), zero_start=True)
+    np.testing.assert_array_equal(kept.matrix, _Z @ _X)
+    assert simplify_plan((_gate(_S, 0),), (2,), zero_start=True) == ()
+
+
+def test_known_inputs_are_forgotten_at_every_non_gate_step():
+    cx = _gate(_CX, 0, 1)
+    channel = ApplyChannelStep((np.eye(2, dtype=np.complex128),), (0,))
+    measure = MeasurementStep((0,), (0,))
+    for step in (channel, measure, ResetStep((0,))):
+        assert simplify_plan((step, cx), (2, 2), zero_start=True) == (step, cx)
+    # A gate conditioned on a classical bit makes its own targets unknown.
+    conditioned = ApplyMatrixStep(_X, (0,), condition=((0, 1),))
+    assert simplify_plan((conditioned, cx), (2, 2), zero_start=True) == (
+        conditioned,
+        cx,
+    )
+
+
+def _clifford_t_program(rng, n, depth):
+    program = fq.Program(n)
+    names = ["H", "X", "Z", "S", "Sdg", "T", "Tdg", "SX"]
+    for _ in range(depth):
+        if rng.random() < 0.3 and n > 1:
+            a, b = (int(q) for q in rng.choice(n, 2, replace=False))
+            program.add(getattr(ops, ["CX", "CZ", "Swap"][rng.integers(3)]), (a, b))
+        elif rng.random() < 0.15:
+            program.add(ops.RZ(float(rng.normal())), int(rng.integers(n)))
+        else:
+            program.add(
+                getattr(ops, names[rng.integers(len(names))]), int(rng.integers(n))
+            )
+    return program
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("method", ["statevector", "unitary"])
+def test_clifford_t_circuits_stay_equivalent_and_get_shorter(seed, method):
+    program = _clifford_t_program(np.random.default_rng(seed), 4, 60)
+    backend = Simulator(method, runtime="numpy")
+    request = {"counts": False, "final_state": True}
+    plain = backend.run(program, shots=0, result_config=request).result()
+    simple = backend.run(
+        program, shots=0, result_config=request, simulation_config={"simplify": True}
+    ).result()
+    np.testing.assert_allclose(
+        getattr(simple, f"get_{method}")(),
+        getattr(plain, f"get_{method}")(),
+        atol=1e-13,
+        rtol=0,
+    )
+    plan, _ = backend._lower_program(program)
+    assert len(simplify_plan(plan, (2,) * 4)) < len(plan)
 
 
 def _random_plan(rng, dims, depth, *, noisy):
@@ -377,13 +637,12 @@ def test_public_mixed_radix_reordered_inverse_cancels():
     dims = backend._allocate_engine_indices(
         program, backend._resolve_resource_layout(program)
     ).system_dims
-    # The pair cancels exactly. Shift and Clock then meet, but Clock's phases
-    # (cube roots of unity) round, so they stay two gates.
+    # The pair cancels exactly. Shift and Clock then meet: Clock's phases
+    # (cube roots of unity) round, but Shift only moves them, so their
+    # product is one exact gate.
     assert len(plan) == 4
-    assert [s.kernel_key for s in simplify_plan(plan, dims)] == [
-        plan[0].kernel_key,
-        plan[3].kernel_key,
-    ]
+    (merged,) = simplify_plan(plan, dims)
+    np.testing.assert_array_equal(merged.matrix, plan[3].matrix @ plan[0].matrix)
 
 
 def test_estimator_accepts_simplify():

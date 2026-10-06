@@ -81,35 +81,42 @@ def test_tiles_are_bit_identical_to_per_gate_kernels(n, seed):
     )
 
 
-def test_runs_split_into_several_tiles_and_reads_flush_first():
+def test_reading_the_state_mid_run_sees_every_queued_gate():
     n = 10
     rng = np.random.default_rng(1)
-    steps = [ApplyMatrixStep(_unitary(rng, 2), (q,)) for q in range(n)] * 2
-    engine = _Tiled()
-    engine.initialize((2,) * n)
-    flushed = []
-    original = engine._flush_pending
-    engine._flush_pending = lambda: (flushed.append(len(engine._pending)), original())
-    for step in steps:
-        engine.apply(step)
-    assert engine._pending  # still queued until something reads the state
-    result = engine.export_state()
-    assert not engine._pending
-    assert sum(1 for size in flushed if size > 1) >= 3
-    initial = np.zeros(1 << n, dtype=np.complex128)
-    initial[0] = 1
-    np.testing.assert_array_equal(result, _run(_PerGate, n, steps, initial))
+    first = _random_steps(rng, n, 30)
+    second = _random_steps(rng, n, 30)
+    results = []
+    for engine_cls in (_Tiled, _PerGate):
+        engine = engine_cls()
+        engine.initialize((2,) * n)
+        for step in first:
+            engine.apply(step)
+        middle = engine.probabilities()
+        for step in second:
+            engine.apply(step)
+        results.append((middle, engine.export_state()))
+    np.testing.assert_array_equal(results[0][0], results[1][0])
+    np.testing.assert_array_equal(results[0][1], results[1][1])
 
 
-def test_small_states_and_mixed_radix_are_not_tiled():
-    engine = NumbaSVEngine()
-    engine.initialize((2,) * 12)  # 64 KiB: below the default threshold
-    engine.apply(ApplyMatrixStep(np.eye(2, dtype=np.complex128)[::-1], (0,)))
-    assert not engine._pending
-    tiled = _Tiled()
-    tiled.initialize((2,) * 6 + (3,))
-    tiled.apply(ApplyMatrixStep(np.eye(2, dtype=np.complex128)[::-1], (0,)))
-    assert not tiled._pending
+def test_mixed_radix_systems_are_unchanged():
+    # Tiles cover qubit statevectors only; a qutrit in the system must leave
+    # results exactly as the per-gate kernels compute them.
+    dims = (2,) * 6 + (3,)
+    rng = np.random.default_rng(2)
+    steps = _random_steps(rng, 6, 40)
+    steps.append(ApplyMatrixStep(_unitary(rng, 3), (6,)))
+    initial = rng.normal(size=192) + 1j * rng.normal(size=192)
+    initial /= np.linalg.norm(initial)
+    results = []
+    for engine_cls in (_Tiled, _PerGate):
+        engine = engine_cls()
+        engine.initialize(dims, initial_state=initial)
+        for step in steps:
+            engine.apply(step)
+        results.append(engine.export_state())
+    np.testing.assert_array_equal(results[0], results[1])
 
 
 def test_unitary_engine_never_queues():
@@ -159,3 +166,75 @@ def test_public_run_above_the_threshold_matches_numpy():
         for runtime in ("numpy", "numba")
     ]
     assert values[1] == pytest.approx(values[0], abs=1e-12)
+
+
+def _controlled(matrix, value=1):
+    """``matrix`` on the later targets where the first target equals ``value``."""
+    size = len(matrix)
+    out = np.eye(2 * size, dtype=np.complex128)
+    out[value * size : (value + 1) * size, value * size : (value + 1) * size] = matrix
+    return out
+
+
+def _insular_steps(rng, n, depth):
+    """Gates whose controls and diagonal targets need no tile bit."""
+    steps = []
+    for _ in range(depth):
+        kind = int(rng.integers(8))
+        width = 3 if kind in (0, 1, 2, 5) else 2
+        targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+        if kind == 0:
+            matrix = _controlled(_CX)  # Toffoli
+        elif kind == 1:
+            matrix = _controlled(_SWAP)  # Fredkin: two active targets
+        elif kind == 2:
+            matrix = np.diag(np.exp(1j * rng.normal(size=8)))
+        elif kind == 3:
+            matrix = _controlled(_unitary(rng, 2), value=int(rng.integers(2)))
+        elif kind == 4:
+            matrix = np.diag(np.exp(1j * rng.normal(size=4)))
+        elif kind == 5:
+            matrix = _controlled(_unitary(rng, 4))
+        elif kind == 6:
+            matrix = _CX
+        else:
+            targets = targets[:1]
+            matrix = _unitary(rng, 2)
+        steps.append(ApplyMatrixStep(matrix, targets))
+    return steps
+
+
+@pytest.mark.parametrize("n", [7, 9, 11])
+@pytest.mark.parametrize("seed", range(5))
+def test_controls_and_diagonals_anywhere_stay_bit_identical(n, seed):
+    rng = np.random.default_rng(1000 * n + seed)
+    initial = rng.normal(size=1 << n) + 1j * rng.normal(size=1 << n)
+    initial /= np.linalg.norm(initial)
+    steps = _insular_steps(rng, n, 80)
+    np.testing.assert_array_equal(
+        _run(_Tiled, n, steps, initial), _run(_PerGate, n, steps, initial)
+    )
+
+
+def test_a_fourier_transform_needs_one_pass_per_tile_of_hadamards():
+    # Controlled phases are diagonal and take no tile bit, so only the
+    # Hadamards' qubits fill tiles: three free bits per pass here, against one
+    # pass per gate if every target needed a bit.
+    n = 12
+    program = fq.Program(n)
+    for q in range(n):
+        program.add(ops.H, q)
+        for k, r in enumerate(range(q + 1, n), start=2):
+            program.add(ops.CPhase(2 * np.pi / 2**k), (r, q))
+    plan, _ = Simulator("statevector", runtime="numpy")._lower_program(program)
+    batches = []
+
+    class Counted(_Tiled):
+        def _apply_tile_batch(self, pending):
+            batches.append(len(pending))
+            super()._apply_tile_batch(pending)
+
+    tiled = _run(Counted, n, plan, None)
+    np.testing.assert_array_equal(tiled, _run(_PerGate, n, plan, None))
+    assert sum(batches) + 0 >= len(plan) - 4
+    assert len(batches) <= 4
