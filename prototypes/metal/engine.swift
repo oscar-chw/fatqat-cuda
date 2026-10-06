@@ -23,22 +23,31 @@ public func fqMetalInit(_ path: UnsafePointer<CChar>) -> Int32 {
 
 @_cdecl("fq_metal_alloc")
 public func fqMetalAlloc(_ bytes: Int) -> UnsafeMutableRawPointer? {
-    guard let buffer = device.makeBuffer(length: bytes, options: .storageModeShared) else { return nil }
-    buffers[UInt(bitPattern: buffer.contents())] = buffer
-    return buffer.contents()
+    // The pool releases the autoreleased reference now, so the dictionary's
+    // is the only one and removing it frees the memory.
+    autoreleasepool {
+        guard let buffer = device.makeBuffer(length: bytes, options: .storageModeShared) else { return nil }
+        buffers[UInt(bitPattern: buffer.contents())] = buffer
+        return buffer.contents()
+    }
 }
+
+@_cdecl("fq_metal_live")
+public func fqMetalLive() -> Int32 { Int32(buffers.count) }
 
 @_cdecl("fq_metal_free")
 public func fqMetalFree(_ pointer: UnsafeMutableRawPointer) {
-    buffers.removeValue(forKey: UInt(bitPattern: pointer))
+    autoreleasepool { _ = buffers.removeValue(forKey: UInt(bitPattern: pointer)) }
 }
 
 var pending: MTLCommandBuffer? = nil
 
 @_cdecl("fq_metal_wait")
 public func fqMetalWait() {
-    pending?.waitUntilCompleted()
-    pending = nil
+    autoreleasepool {
+        pending?.waitUntilCompleted()
+        pending = nil
+    }
 }
 
 // Tiles [first, first + count) of one batch, started without waiting (call
@@ -51,6 +60,9 @@ public func fqMetalTiles(_ pointer: UnsafeMutableRawPointer,
                          _ masks: UnsafeRawPointer,
                          _ tileBits: UnsafeRawPointer, _ restBits: UnsafeRawPointer, _ nRest: Int32,
                          _ first: UInt32, _ count: UInt32) {
+  // Called from threads with no autorelease pool: without one, every command
+  // buffer (and with it the state buffer it retains) would never be released.
+  autoreleasepool {
     let buffer = buffers[UInt(bitPattern: pointer)]!
     let command = queue.makeCommandBuffer()!
     let encoder = command.makeComputeCommandEncoder()!
@@ -76,4 +88,5 @@ public func fqMetalTiles(_ pointer: UnsafeMutableRawPointer,
     encoder.endEncoding()
     command.commit()
     pending = command
+  }
 }

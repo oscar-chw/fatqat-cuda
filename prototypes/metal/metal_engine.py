@@ -253,8 +253,12 @@ def check_signed_zeros(n: int = 20) -> bool:
     rng = np.random.default_rng(0)
     initial = rng.normal(size=1 << n) + 1j * rng.normal(size=1 << n)
     initial[rng.random(1 << n) < 0.3] = complex(-0.0, -0.0)
+    # Against Numba's tiles: its per-gate kernel multiplies by an entry of
+    # exactly 1 where its tiles (and these) move the amplitude, so the two
+    # Numba paths already differ in the sign of zeros.
+    numba_tiles = type("NumbaTiles", (NumbaSVEngine,), {"_TILE_MIN_BYTES": 0})
     states = []
-    for cls in (NumbaSVEngine, MetalSVEngine):
+    for cls in (numba_tiles, MetalSVEngine):
         engine = cls()
         engine.initialize((2,) * n, initial_state=initial)
         for step in steps:
