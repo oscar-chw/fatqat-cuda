@@ -90,6 +90,19 @@ documentation, cache size limits and, at b0a8d67, which runs spread their
 shots over several GPUs (only `shots-cuda.json` depends on that, and it was
 measured after it); none changes a computed value.
 
+## r12 records
+
+r12 turns simplification on by default where it changes no value
+(`simplify="auto"`) and adds phase folding to `simplify=True`. All four files
+measured commit fe0c021.
+
+| File | What it holds | Produced by |
+| --- | --- | --- |
+| `simplify-check-r12.json` | `simplify=True` against the ideal circuit and its wall-time effect on NumPy and Numba, as `simplify-check.json`, plus a phase-gadget family and the steps merging alone leaves | `perf/simplify_check.py` |
+| `simplify-check-r12-cuda.json` | The same on one GPU at 26 qubits | `perf/simplify_check.py --runtimes cuda --qubits 26` |
+| `differential-check-r12.json` | The differential check with r12's new section, `simplify="auto"` against `False` through the public API (counts and states bit for bit), on this machine's CPU and Apple-GPU prototype | `perf/differential_check.py` |
+| `differential-check-r12-cuda.json` | The same on a machine with a GPU, CUDA engines included | `perf/differential_check.py` |
+
 ## Earlier record
 
 `benchmarks.json` is a scrubbed transcription of the benchmark record behind

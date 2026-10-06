@@ -22,7 +22,7 @@ class _SimulationConfig:
     kernel_parallelism: Any = "auto"
     max_workers: Any = None
     fusion: Any = False
-    simplify: Any = False
+    simplify: Any = "auto"
 
     def __post_init__(self) -> None:
         if self.seed is not None and (type(self.seed) is not int):
@@ -66,9 +66,11 @@ class _SimulationConfig:
             )
         if type(self.fusion) is not bool:
             raise BackendValidationError(f"fusion must be a bool, got {self.fusion!r}")
-        if type(self.simplify) is not bool:
+        if type(self.simplify) is not bool and not (
+            type(self.simplify) is str and self.simplify == "auto"
+        ):
             raise BackendValidationError(
-                f"simplify must be a bool, got {self.simplify!r}"
+                f"simplify must be 'auto' or a bool, got {self.simplify!r}"
             )
 
 

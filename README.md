@@ -112,48 +112,23 @@ unchanged.
   bit-identical to running the shots one at a time. `device_id="all"` uses every visible GPU, and a
   run's shots are split over them with one worker process per further GPU,
   when the shots can branch apart ([how](docs/optimisations.md)).
+- **r12: simplification on by default, and phase folding.** The default,
+  `simplify="auto"`, applies only rewrites that change no value on Numba and
+  CUDA (unit gates, whose entries are `0`, `±1` and `±i`, and gates on known
+  basis inputs),
+  and only when the state is large enough for the pass to pay; result
+  metadata says what it did. `simplify=True` adds phase folding: phase gates
+  on one parity of qubits are summed across `CX`, `X` and `SWAP` gates, as in
+  Nam et al. (2018), under the same rule that a rewrite never adds rounding.
 
-What crosses between host and device on each kind of call. Everything not drawn as an arrow stays where it is.
-
-```mermaid
-sequenceDiagram
-  participant U as Caller
-  participant H as Simulator (host)
-  participant G as GPU memory
-  Note over H,G: every call
-  H->>G: gate/Kraus matrices,<br/>uploaded once per execution
-  opt initial_state given
-    H->>G: host array copied<br/>into owned device state
-  end
-  H->>G: kernels queued, state updated in place
-  H->>G: synchronize stream before the Job is DONE
-  alt run() with final state requested
-    G-->>H: full state or operator (export_state)
-    H-->>U: NumPy array
-  else run() with counts
-    H->>G: uniforms from the seeded host RNG
-    G-->>H: sampled indices only
-    H-->>U: counts decoded on host
-  else Estimator, exact
-    Note over G: evolved state kept resident
-    G-->>H: ≤ 4096 partial sums per term
-    H-->>U: math.fsum, then expectation values
-  else Estimator, sampled
-    Note over G: base state kept resident
-    G->>G: device-to-device copy<br/>for each measurement tail
-    G-->>H: sampled indices only
-    H-->>U: estimates from counts
-  end
-  Note over H,G: matrix uploads released after each execution
-```
-
-Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `_matrix_array`, `_allocate`, `export_state`, `sample_indices`, `expectation_values`), `src/fatqat/simulator/simulator.py` (`_execute_expectation_base`, `_execute_sampled_expectation`); tests: `tests/simulator/test_cuda_resident.py`.
+What crosses between host and device on each kind of call, and where that is in the code: [docs/cuda-coverage.md](docs/cuda-coverage.md#host-and-device).
 
 ### Design decisions and trade-offs
 
 - **complex128, not complex64.** Twice the memory and bandwidth per amplitude, in exchange for GPU results that match the CPU engines (≤ 3.1 eps against a 60-digit reference, on circuits of up to 5 subsystems).
 - **CuPy `RawKernel`s, not a compiled CUDA extension.** The GPU path stays an optional pip extra with nothing to build. The cost is a CuPy dependency and a compile step the first time each kernel runs (CuPy caches it on disk).
 - **Hand-written kernels only for one- and two-qubit gates.** Wider gates and mixed dimensions use CuPy tensor contraction, which is correct but not tuned.
+- **On by default, but only where nothing changes.** `simplify="auto"` keeps every value bit for bit on Numba and CUDA, so turning it on by default cannot change a result there; it is off on NumPy, whose BLAS rounding can depend on an amplitude's position. The rewrites that do change values (towards the ideal circuit on average) stay behind `simplify=True`.
 - **`simplify=True` uses exact algebra, not floating point.** A run becomes its product only if that rounds no more, and the product is rounded once. Rewrites of unit gates keep values the same on Numba and CUDA (NumPy, through BLAS, can differ in the last bit, and so can a CUDA density matrix when a rotation is merged into a permutation); cancelling rounding gates brings results closer to the ideal circuit on average (0.78 vs 2.92 eps), though there is no per-circuit bound: 6 of 48 measured circuits ended up slightly worse (at most 0.061 eps). The price is fewer rewrites: a rotation merges only with `±1` permutations, never with another rotation ([why](docs/optimisations.md)).
 - **Several GPUs split `run_sweep` rows or a run's shots, never one state.** `device_id="all"` uses every visible GPU. There is no traffic between GPUs, and each row or shot is computed exactly as on one GPU, so counts equal a one-GPU run with the same seed on GPUs of the same model. The largest state is still bounded by one GPU's memory.
 - **One worker process per extra GPU, not threads.** Each shot's loop is mostly Python, and threads take turns on the interpreter lock: two GPUs on threads were 0.67–0.80× of one at 20 qubits (an unpublished measurement). Worker processes cost a start-up the first time and an idle process per extra GPU for five minutes, in exchange for 1.58–1.92× on two GPUs.
@@ -174,6 +149,8 @@ on two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable 
 | Unitary method with gate tiles vs without, one GPU, same run | 12–14 qubits | 1.28–1.42× faster, same memory | [ab-unitary-tiles.json](results/ab-unitary-tiles.json) |
 | r10 tiles (controls and diagonals take no tile bit) vs r9 tiles, same engine, QFT, adder, QAOA, Clifford+T | 24–26 qubits | GPU 1.06–2.48× (QFT 47 → 7 passes), CPU 1.48–1.68× (QFT 27 → 5 passes); equal values | [tile-check-cuda.json](results/tile-check-cuda.json), [tile-check.json](results/tile-check.json) |
 | r10 `simplify=True` on a Clifford+T adder, QAOA and redundant Clifford+T | 20 (CPU), 26 (GPU) qubits | CPU 1.8–4.3×, GPU 1.0–2.75×; mean error vs the ideal circuit 0.8 eps, not 2.9–3.1 (6 of 48 circuits up to 0.061 eps worse; no per-circuit bound) | [simplify-check.json](results/simplify-check.json), [simplify-check-cuda.json](results/simplify-check-cuda.json) |
+| r12 `simplify=True` with phase folding on phase gadgets (`CX` ladders around `T`, `S`) | 20 (CPU), 26 (GPU) qubits | 851 → 129 steps (merging alone: 368): NumPy 7.1×, Numba 3.4×, GPU 2.6× (678 → 68); error vs the ideal circuit 0.5 eps, not 2.0 | [simplify-check-r12.json](results/simplify-check-r12.json), [simplify-check-r12-cuda.json](results/simplify-check-r12-cuda.json) |
+| r12 `simplify="auto"` (default) against `False`, counts and states, public API | random noisy dynamic programs, Numba and CUDA | bit for bit in all 1,200 cases on the GPU machine and 600 here; 0 failures in every other differential section | [differential-check-r12.json](results/differential-check-r12.json), [differential-check-r12-cuda.json](results/differential-check-r12-cuda.json) |
 | r10 accuracy vs a 60-digit reference, 110 circuits, all four methods | up to 5 subsystems (qubits and qutrits) | ≤ 2.9 eps on every runtime; GPU vs Numba −0.047 ± 0.033 eps | [precision-r10.json](results/precision-r10.json) |
 | r11 shot branching vs every shot alone, same run (mid-circuit measurement, low and high noise) | 16–18 qubits, CPU | NumPy 1.24–12.1×, Numba (per-shot path forced) 1.22–79×; never slower in the 12 measured cells; counts equal | [branching-check.json](results/branching-check.json) |
 | r11 shot branching vs every shot alone, one GPU, same run | 20–24 qubits | measured circuits 19–89×, low noise 2.0–5.0×, high noise 1.03–1.17×; counts equal | [shots-cuda.json](results/shots-cuda.json) |

@@ -1,4 +1,4 @@
-"""Check that ``simplify=True`` is never less accurate and is worth running.
+"""Check that ``simplify=True`` is not measurably less accurate and is worth running.
 
 Accuracy: seeded Clifford+T circuits with and without the redundancy that
 simplification removes run on every available runtime, with and without
@@ -11,7 +11,7 @@ error(plain)`` with its standard error says whether simplification costs
 accuracy. Control: every plain CPU arm must sit within 1e-12 of the ideal
 circuit, or the reference's conventions are wrong and the run aborts.
 
-Speed: four larger circuits, timed warm with both arms alternating in one
+Speed: five larger circuits, timed warm with both arms alternating in one
 process, so drift and contention hit both alike, as exact expectation values
 (the state stays where it was computed, as in an Estimator call):
 
@@ -20,13 +20,15 @@ process, so drift and contention hit both alike, as exact expectation values
 - a random Clifford+T circuit with lecture-style redundancy (``H X H``, ``T T``,
   inverse pairs, commuting ``CX``);
 - MaxCut QAOA, whose ``ZZ`` terms are written ``CX RZ CX``;
+- phase gadgets (``CX`` ladders around ``T``, ``Tdg`` or ``S``) on recurring
+  parities, which phase folding sums across the ladders;
 - a quantum Fourier transform after a rotation layer, where nothing simplifies:
   the control. Its wall-time ratio is reported, but the gate is the pass's own
   cost (the fastest of the repeats) as a fraction of the plain run, which
   background load cannot make look better or worse than it is.
 
 Exit status is nonzero when the control fails, when simplification is
-measurably less accurate on any runtime, when the three circuits with redundancy are
+measurably less accurate on any runtime, when the four circuits with redundancy are
 not faster on every CPU runtime, or when the pass costs more than a few per
 cent of a plain run of the control circuit.
 
@@ -157,6 +159,25 @@ def qaoa(rng: np.random.Generator, n: int, layers: int = 2) -> list:
         for a, b in edges:
             gates += [("CX", None, (a, b)), ("RZ", gamma, (b,)), ("CX", None, (a, b))]
         gates += [("RX", beta, (q,)) for q in range(n)]
+    return gates
+
+
+def phase_gadgets(rng: np.random.Generator, n: int, count: int, pool: int = 6) -> list:
+    """Phase gadgets (exponentials of Z parities, as CX ladders around a phase
+    gate) on a few recurring parities, with some H in between: where phase
+    folding pays, since gates on one parity sum across the ladders."""
+    subsets = [
+        sorted(int(q) for q in rng.choice(n, int(rng.integers(2, 5)), replace=False))
+        for _ in range(pool)
+    ]
+    gates = [("H", None, (q,)) for q in range(n)]
+    for _ in range(count):
+        s = subsets[int(rng.integers(pool))]
+        ladder = [("CX", None, (s[i], s[i + 1])) for i in range(len(s) - 1)]
+        phase = str(rng.choice(["T", "Tdg", "S", "T"]))
+        gates += ladder + [(phase, None, (s[-1],))] + ladder[::-1]
+        if rng.random() < 0.3:
+            gates.append(("H", None, (int(rng.integers(n)),)))
     return gates
 
 
@@ -296,6 +317,7 @@ def accuracy(runtimes: list[str], seeds: int) -> dict:
         "plain_clifford_t": lambda rng: (6, plain_clifford_t(rng, 6, 120)),
         "adder": lambda rng: adder(2, int(rng.integers(4)), int(rng.integers(4))),
         "qaoa": lambda rng: (6, qaoa(rng, 6)),
+        "phase_gadgets": lambda rng: (6, phase_gadgets(rng, 6, 30, pool=4)),
     }
     rows = []
     for family, make in families.items():
@@ -357,6 +379,7 @@ def timing(runtimes: list[str], qubits: int, repeats: int) -> list[dict]:
         "adder": (n_adder, adder_gates),
         "redundant_clifford_t": (qubits, redundant_clifford_t(rng, qubits, 1200)),
         "qaoa": (qubits, qaoa(rng, qubits)),
+        "phase_gadgets": (qubits, phase_gadgets(rng, qubits, 150)),
         "rotated_qft_control": (qubits, rotated_qft(rng, qubits)),
     }
     out = []
@@ -364,11 +387,12 @@ def timing(runtimes: list[str], qubits: int, repeats: int) -> list[dict]:
         program = build_program(n, gates)
         backend = Simulator("statevector", runtime="numpy")
         plan, _ = backend._lower_program(program)  # pylint: disable=protected-access
-        from fatqat._backends.simplify import (
-            simplify_plan,
-        )  # pylint: disable=import-outside-toplevel
+        # pylint: disable-next=import-outside-toplevel
+        from fatqat._backends.simplify import _merge_pass, _Merger, simplify_plan
 
         steps_after = len(simplify_plan(plan, (2,) * n, zero_start=True))
+        # The r10-r11 pass (merge and specialise, no phase folding), for scale.
+        steps_merge_only = len(_merge_pass(_Merger((2,) * n), plan, (2,) * n, True))
         pass_seconds = []
         for _ in range(max(3, repeats)):
             start = time.perf_counter()
@@ -393,6 +417,7 @@ def timing(runtimes: list[str], qubits: int, repeats: int) -> list[dict]:
                     "runtime": runtime,
                     "steps_plain": len(plan),
                     "steps_simplify": steps_after,
+                    "steps_merge_only": steps_merge_only,
                     "median_plain_s": plain,
                     "median_simplify_s": simple,
                     "speedup": plain / simple,
@@ -401,7 +426,8 @@ def timing(runtimes: list[str], qubits: int, repeats: int) -> list[dict]:
                 }
             )
             print(
-                f"{name:22s} {runtime:6s} {len(plan):5d}->{steps_after:5d} steps  "
+                f"{name:22s} {runtime:6s} {len(plan):5d}->{steps_after:5d} steps "
+                f"(merge only {steps_merge_only:5d})  "
                 f"{plain / simple:.2f}x  pass {min(pass_seconds) / plain:.1%} of a plain run",
                 flush=True,
             )

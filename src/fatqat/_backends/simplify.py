@@ -59,6 +59,7 @@ import bisect
 from collections.abc import Sequence
 from fractions import Fraction
 import heapq
+from itertools import count
 from math import isqrt, prod
 
 import numpy as np
@@ -297,25 +298,245 @@ class _Block:
 
 
 def simplify_plan(
-    plan: Sequence, system_dims: Sequence[int], *, zero_start: bool = False
+    plan: Sequence,
+    system_dims: Sequence[int],
+    *,
+    zero_start: bool = False,
+    keep_values: bool = False,
 ) -> tuple:
     """Return an equivalent plan with exact runs multiplied out.
 
     ``zero_start`` declares that the plan runs from the all-zero basis state,
-    which enables specialisation under known inputs.
+    which enables specialisation under known inputs. ``keep_values`` limits
+    the pass to rewrites that change no value on any runtime and method: only
+    unit gates (entries ``0``, ``+-1``, ``+-i``), whose products are exact in
+    any order, and gates on known inputs. The built-in gates that round
+    (``H``, ``T``, ``Tdg``, ``SX``) and rotations are left as they are: their
+    products round once instead of gate by gate, or in another order.
     """
-    merger = _Merger(system_dims)
+    merger = _Merger(system_dims, keep_values=keep_values)
+    if keep_values:
+        return _merge_pass(merger, plan, system_dims, zero_start)
+    # Phase folding, then the merge, repeated while a round strictly lowers
+    # the cost (rounding first, then steps), as Yosys `opt` repeats its
+    # passes; at most three rounds, as ABC's resyn2. Neither pass ever adds
+    # rounding, so neither does the result. Folding comes first: the merge
+    # would otherwise fuse H T H into a dense block that hides its phases.
+    steps = cost = None
+    current = plan
+    for _ in range(_MAX_ROUNDS):
+        folded = _fold_phases(current, system_dims, merger)
+        if steps is not None and _same_steps(folded, current):
+            break  # nothing folds: merging it again would change nothing
+        candidate = _merge_pass(merger, folded, system_dims, zero_start)
+        candidate_cost = _plan_cost(merger, candidate)
+        if cost is not None and candidate_cost >= cost:
+            break
+        steps, cost, current = candidate, candidate_cost, candidate
+    return steps
+
+
+def _same_steps(a: Sequence, b: Sequence) -> bool:
+    # Steps hold arrays, so compare by identity: any rewrite is a new object.
+    return len(a) == len(b) and all(x is y for x, y in zip(a, b))
+
+
+_MAX_ROUNDS = 3
+
+
+def _merge_pass(merger, plan, system_dims, zero_start) -> tuple:
+    """Merge, then specialise under known inputs and merge what that exposed."""
     steps = merger.run(plan)
     if zero_start and not any(isinstance(s, (LossStep, PutStep)) for s in steps):
         # Loss and reload make occupancy, not amplitudes, decide what a gate
         # does per shot, so known inputs are not tracked across them at all.
-        specialised = _specialise(steps, system_dims)
-        # Steps hold arrays, so compare by identity: any rewrite is a new object.
-        if len(specialised) != len(steps) or any(
-            a is not b for a, b in zip(specialised, steps)
-        ):
+        specialised = _specialise(steps, system_dims, keep_values=merger.keep_values)
+        if not _same_steps(specialised, steps):
             steps = merger.run(specialised)
     return steps
+
+
+def _step_rounding(merger, step) -> int:
+    """Products summed into each amplitude by ``step``; 0 for an exact move."""
+    if not isinstance(step, ApplyMatrixStep):
+        return 0
+    exact = merger._exact(step)  # pylint: disable=protected-access
+    if exact is not None:
+        return merger.info[exact][0]
+    matrix = np.asarray(step.matrix)
+    if _unit_kind(matrix):
+        return 0
+    return int((matrix != 0).sum(axis=1).max())
+
+
+def _plan_cost(merger, plan) -> tuple[int, int]:
+    return sum(_step_rounding(merger, step) for step in plan), len(plan)
+
+
+def _phase_exponents(merger, step) -> tuple[int, int] | None:
+    """``(a, b)`` when ``step`` is ``diag(w**a, w**b)`` on one qubit, exactly."""
+    if len(step.target_indices) != 1 or step.condition is not None:
+        return None
+    exact = merger._exact(step)  # pylint: disable=protected-access
+    if exact is None:
+        return None
+    num, k = merger.matrices[exact]
+    if k != 0 or num.shape[:2] != (2, 2) or not merger.info[exact][1]:
+        return None
+    exponents = []
+    for entry in (num[0, 0], num[1, 1]):
+        (where,) = np.nonzero(entry)
+        if len(where) != 1 or abs(int(entry[where[0]])) != 1:
+            return None
+        j = int(where[0])
+        exponents.append(j if entry[j] > 0 else j + 4)
+    return exponents[0], exponents[1]
+
+
+def _affine_map(matrix: np.ndarray, width: int):
+    """``(A, b)`` with ``f(x) = A x + b`` over GF(2), when ``matrix`` permutes
+    the basis of ``width`` qubits that way (``CX``, ``X``, ``SWAP``); else None.
+
+    ``A[j][i]`` is whether output qubit ``j`` depends on input qubit ``i``; the
+    first target is the most significant local digit.
+    """
+    size = 1 << width
+    if width > _MAX_EXACT_SUBSYSTEMS or matrix.shape != (size, size):
+        return None
+    if not np.all((matrix == 0) | (matrix == 1)) or not np.all(matrix.sum(axis=0) == 1):
+        return None
+    image = [int(np.argmax(matrix[:, x])) for x in range(size)]
+
+    def bit(value, j):
+        return (value >> (width - 1 - j)) & 1
+
+    b = [bit(image[0], j) for j in range(width)]
+    columns = [image[1 << (width - 1 - i)] for i in range(width)]
+    a = [[bit(columns[i], j) ^ b[j] for i in range(width)] for j in range(width)]
+    for x in range(size):
+        for j in range(width):
+            expected = b[j]
+            for i in range(width):
+                expected ^= a[j][i] & bit(x, i)
+            if bit(image[x], j) != expected:
+                return None
+    return a, b
+
+
+def _fold_phases(plan: Sequence, system_dims: Sequence[int], merger) -> tuple:
+    """Phase folding (Nam et al. 2018, routine 4) under the rounding rule.
+
+    Each qubit wire carries an affine parity of path variables: ``X``, ``CX``
+    and ``SWAP`` (any affine 0/1 permutation) update it, a diagonal gate leaves
+    it, and any other gate gives its wires fresh variables. A phase gate
+    ``diag(w**a, w**b)`` multiplies every path by ``w`` to a power that
+    depends only on its wire's parity, so all phases on one parity sum (mod 8)
+    into one gate at the first place the parity appeared, with no global
+    phase lost. A group is folded only when that removes rounding, or when no
+    step between its first and last gate rounds: floating point neither
+    distributes nor reassociates. Measurements, resets, channels, loss and
+    reloads end every group; conditioned gates and gates on qudits give their
+    wires fresh variables.
+    """
+    wires: dict[int, tuple[frozenset, int]] = {}
+    fresh = count()
+    groups: dict[frozenset, list] = {}
+    closed: list[list] = []
+    rounds = [0]  # rounding steps before each index
+
+    def parity(q):
+        if q not in wires:
+            wires[q] = (frozenset((next(fresh),)), 0)
+        return wires[q]
+
+    for index, step in enumerate(plan):
+        rounds.append(rounds[-1] + (_step_rounding(merger, step) > 0))
+        touched = _touched(step)
+        if touched is None:
+            closed.extend(groups.values())
+            groups.clear()
+            wires.clear()
+            continue
+        if (
+            not isinstance(step, ApplyMatrixStep)
+            or step.condition is not None
+            or any(system_dims[q] != 2 for q in touched)
+        ):
+            for q in touched:
+                wires.pop(q, None)
+            continue
+        phase = _phase_exponents(merger, step)
+        if phase is not None:
+            (q,) = touched
+            variables, const = parity(q)
+            # As a function of the parity's value y: w**p0 at y = 0, w**p1 at 1.
+            p0, p1 = phase if const == 0 else phase[::-1]
+            group = groups.get(variables)
+            if group is None:
+                groups[variables] = [index, q, const, p0, p1, [(index, phase)]]
+            else:
+                group[3] = (group[3] + p0) % 8
+                group[4] = (group[4] + p1) % 8
+                group[5].append((index, phase))
+            continue
+        matrix = np.asarray(step.matrix)
+        if _is_diagonal(matrix):
+            continue  # commutes with every phase, and moves no amplitude
+        affine = _affine_map(matrix, len(touched))
+        if affine is None:
+            for q in touched:
+                wires.pop(q, None)
+            continue
+        a, b = affine
+        old = [parity(q) for q in touched]
+        for j, q in enumerate(touched):
+            variables, const = frozenset(), b[j]
+            for i, (other, other_const) in enumerate(old):
+                if a[j][i]:
+                    variables, const = variables ^ other, const ^ other_const
+            wires[q] = (variables, const)
+    closed.extend(groups.values())
+
+    replaced: dict[int, ApplyMatrixStep | None] = {}
+    for first, q, const, p0, p1, members in closed:
+        if len(members) < 2:
+            continue
+        before = sum(a % 2 or b % 2 for _, (a, b) in members)
+        # On the wire at the first gate, x = y + const.
+        e0, e1 = (p0, p1) if const == 0 else (p1, p0)
+        after = int(bool(e0 % 2 or e1 % 2))
+        last = members[-1][0]
+        if not (after < before or rounds[last] == rounds[first + 1]):
+            continue
+        for index, _ in members[1:]:
+            replaced[index] = None
+        if (e0, e1) == members[0][1]:
+            continue  # the first gate already is the sum: keep its step
+        if e0 == e1 == 0:
+            replaced[first] = None
+        else:
+            replaced[first] = _phase_step(merger, q, e0, e1)
+    return tuple(
+        replaced[index] if index in replaced else step
+        for index, step in enumerate(plan)
+        if replaced.get(index, step) is not None
+    )
+
+
+def _phase_step(merger, q: int, e0: int, e1: int) -> ApplyMatrixStep:
+    """``diag(w**e0, w**e1)`` on ``q``, known to the merger as exact."""
+    num = np.zeros((2, 2, 4), dtype=np.int64)
+    for row, e in ((0, e0), (1, e1)):
+        num[row, row, e % 4] = 1 if e < 4 else -1
+    matrix = _to_float(num, 0)  # correctly rounded, unlike the built-in T
+    matrix.flags.writeable = False
+    if not _unit_kind(matrix):
+        # Its content alone would read as a rounding scaled permutation.
+        content = (None, matrix.shape, matrix.tobytes())
+        if content not in merger.exact_by_content:
+            # pylint: disable-next=protected-access
+            merger.exact_by_content[content] = merger._intern(num, 0)
+    return ApplyMatrixStep(matrix, (q,))
 
 
 def _touched(step) -> tuple[int, ...] | None:
@@ -341,8 +562,9 @@ class _Merger:
     (any compiled Clifford+T circuit) costs dictionary lookups, not algebra.
     """
 
-    def __init__(self, system_dims: Sequence[int]):
+    def __init__(self, system_dims: Sequence[int], *, keep_values: bool = False):
         self.dims = tuple(system_dims)
+        self.keep_values = keep_values
         self.out: list = []
         # For each subsystem, sorted indices into ``out`` of live entries on it.
         self.history: dict[int, list[int]] = {}
@@ -434,7 +656,7 @@ class _Merger:
             exact = None
             if _unit_kind(matrix):
                 exact = self._intern(_from_unit(matrix), 0)
-            elif step.kernel_key in _TABLE:
+            elif step.kernel_key in _TABLE and not self.keep_values:
                 # The declared identity decides; the content check only
                 # guards against a mislabelled matrix. Built-in H and T store
                 # 1/sqrt(2) as 0.7071067811865475, one ulp below the
@@ -444,7 +666,11 @@ class _Merger:
                     _to_float(num, k), matrix, rtol=0, atol=4 * _EPS
                 ):
                     exact = self._intern(num, k)
-            elif _is_scaled_permutation(matrix):
+            elif _is_scaled_permutation(matrix) and not self.keep_values:
+                # Not under keep_values: CUDA's density-matrix kernel
+                # associates its two-sided product by a matrix's structure
+                # (and a built-in key picks its own kernel), so a rotation
+                # merged into a permutation can round differently there.
                 exact = self._intern_scaled(matrix.copy())
             self.exact_by_content[content] = exact
         return self.exact_by_content[content]
@@ -771,8 +997,13 @@ def _scaled_product(after, after_k, before, before_k) -> np.ndarray | None:
 # --- specialisation under known inputs -------------------------------------------
 
 
-def _specialise(plan: Sequence, system_dims: Sequence[int]) -> tuple:
+def _specialise(
+    plan: Sequence, system_dims: Sequence[int], *, keep_values: bool = False
+) -> tuple:
     """Drop or shrink gates whose inputs are known basis states.
+
+    Under ``keep_values`` a gate is shrunk only to a unit block: a smaller
+    rounding gate runs through another kernel, which may round differently.
 
     Valid only from the all-zero start. A subsystem is *known* while every
     amplitude away from one level of it is exactly zero; gates on other
@@ -825,7 +1056,11 @@ def _specialise(plan: Sequence, system_dims: Sequence[int]) -> tuple:
         block = block.reshape(size, size)
         if np.array_equal(block, np.eye(size)):
             continue  # identity on this input
-        if free and len(targets) > _MAX_SCALED_SUBSYSTEMS and not _unit_kind(block):
+        if (
+            free
+            and (keep_values or len(targets) > _MAX_SCALED_SUBSYSTEMS)
+            and not _unit_kind(block)
+        ):
             # Shrinking a wide rounding gate would move it from CUDA's cuBLAS
             # path to its own kernels, which round differently.
             out.append(step)

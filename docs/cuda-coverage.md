@@ -39,3 +39,41 @@ flowchart LR
 ```
 
 Where in the code: `src/fatqat/simulator/simulator.py` (`_validate_runtime_config`), `src/fatqat/simulator/_engine/cupy.py` (`_supported_execution_shapes`, `CupySVEngine`), `src/fatqat/simulator/fake_atom_array.py`, `src/fatqat/simulator/fake_superconducting.py`; coverage table: [CUDA runtime guide](mkdocs/en/api/cupy-simulator.md).
+
+## Host and device
+
+What crosses between host and device on each kind of call. Everything not drawn as an arrow stays where it is.
+
+```mermaid
+sequenceDiagram
+  participant U as Caller
+  participant H as Simulator (host)
+  participant G as GPU memory
+  Note over H,G: every call
+  H->>G: gate/Kraus matrices,<br/>uploaded once per execution
+  opt initial_state given
+    H->>G: host array copied<br/>into owned device state
+  end
+  H->>G: kernels queued, state updated in place
+  H->>G: synchronize stream before the Job is DONE
+  alt run() with final state requested
+    G-->>H: full state or operator (export_state)
+    H-->>U: NumPy array
+  else run() with counts
+    H->>G: uniforms from the seeded host RNG
+    G-->>H: sampled indices only
+    H-->>U: counts decoded on host
+  else Estimator, exact
+    Note over G: evolved state kept resident
+    G-->>H: ≤ 4096 partial sums per term
+    H-->>U: math.fsum, then expectation values
+  else Estimator, sampled
+    Note over G: base state kept resident
+    G->>G: device-to-device copy<br/>for each measurement tail
+    G-->>H: sampled indices only
+    H-->>U: estimates from counts
+  end
+  Note over H,G: matrix uploads released after each execution
+```
+
+Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `_matrix_array`, `_allocate`, `export_state`, `sample_indices`, `expectation_values`), `src/fatqat/simulator/simulator.py` (`_execute_expectation_base`, `_execute_sampled_expectation`); tests: `tests/simulator/test_cuda_resident.py`.
