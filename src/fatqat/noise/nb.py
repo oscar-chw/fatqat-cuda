@@ -115,6 +115,19 @@ def _jump_branch_kernel(
     ``rng.choice(num, p=norms / norms.sum())`` - so round-off can never leave
     ``u`` past the end.
     """
+    weights, probabilities = _jump_weights_kernel(branches)
+    return _jump_take_kernel(branches, weights, _inverse_cdf_pick(probabilities, u))
+
+
+@njit(cache=True)
+def _jump_weights_kernel(
+    branches: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover - compiled by Numba
+    """Each branch's squared norm, and the norms divided by their total.
+
+    The weighing half of `_jump_branch_kernel`, separate so shot branching
+    can weigh a state once and pick for every shot in it.
+    """
     num = branches.shape[0]
     size = branches.shape[1]
 
@@ -131,8 +144,15 @@ def _jump_branch_kernel(
     probabilities = np.empty(num, dtype=np.float64)
     for i in range(num):
         probabilities[i] = weights[i] / total
-    chosen = _inverse_cdf_pick(probabilities, u)
+    return weights, probabilities
 
+
+@njit(cache=True)
+def _jump_take_kernel(
+    branches: np.ndarray, weights: np.ndarray, chosen: int
+) -> np.ndarray:  # pragma: no cover - compiled by Numba
+    """Branch ``chosen``, normalized by its own norm."""
+    size = branches.shape[1]
     norm = sqrt(weights[chosen])
     out = np.empty(size, dtype=np.complex128)
     for j in range(size):

@@ -147,7 +147,7 @@ Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `
 - **CuPy `RawKernel`s, not a compiled CUDA extension.** The GPU path stays an optional pip extra with nothing to build. The cost is a CuPy dependency and a compile step the first time each kernel runs (CuPy caches it on disk).
 - **Hand-written kernels only for one- and two-qubit gates.** Wider gates and mixed dimensions use CuPy tensor contraction, which is correct but not tuned.
 - **`simplify=True` uses exact algebra, not floating point.** A run becomes its product only if that rounds no more, and the product is rounded once. Rewrites of exact gates keep values the same on Numba and CUDA (NumPy, through BLAS, can differ in the last bit); cancelling rounding gates brings results closer to the ideal circuit. The price is fewer rewrites: a rotation merges only with `±1` permutations, never with another rotation ([why](docs/optimisations.md)).
-- **Several GPUs split `run_sweep` rows, never one state.** No traffic between GPUs, and each row is computed exactly as on one GPU. The largest state is still bounded by one GPU's memory.
+- **Several GPUs split `run_sweep` rows or a run's shots, never one state.** `device_id="all"` uses every visible GPU. There is no traffic between GPUs, and each row or shot is computed exactly as on one GPU, so counts equal a one-GPU run with the same seed. The largest state is still bounded by one GPU's memory.
 
 ## Results
 
@@ -209,9 +209,10 @@ Docs: see [docs/README.md](docs/README.md).
 
 ## Limits
 
-- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); stochastic statevector trajectories (CUDA statevectors reject channels, reset, mid-circuit measurement and feedforward); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba's tiles, and sharing each tile batch between the Apple GPU and the CPU is 1.24–1.48× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
+- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba's tiles, and sharing each tile batch between the Apple GPU and the CPU is 1.24–1.48× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
 - The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
-- Several GPUs help only `run_sweep`, and scale sublinearly because each row's Python-side work runs one thread at a time; one simulation is never split across GPUs.
+- Several GPUs help `run_sweep` and runs of independent shots (trajectories); a single ideal run uses one GPU. They scale sublinearly, because each row's or shot's Python-side work runs one thread at a time; one state is never split across GPUs.
+- CUDA statevector trajectories (channels, reset, mid-circuit measurement, feedforward) run their shots one after another on the GPU. Each shot draws from its own seed stream in the order NumPy does, so a seed selects the same branches as `runtime="numpy"`.
 - The CUDA 12 extra is packaged but has not been tested on a device.
 - The benchmark source documents belong to a private research record and are not published; `results/benchmarks.json` is a scrubbed transcription.
 - **Not merged upstream.** This is an independent fork and has not been submitted upstream.

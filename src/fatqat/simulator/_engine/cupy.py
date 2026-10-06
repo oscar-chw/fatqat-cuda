@@ -14,14 +14,15 @@ from math import fsum
 import numpy as np
 
 from ...errors import BackendValidationError
-from ..._backends.steps import ApplyMatrixStep, MeasurementStep
 from .base import _TileQueue
+from ...implementation.matrices import shift_matrix
 from .np import (
     NumpySVEngine,
     NumpyDMEngine,
     NumpyUnitaryEngine,
     NumpySuperopEngine,
     _contract_local,
+    _digit,
     _strides,
 )
 
@@ -93,6 +94,19 @@ class _CupyRuntime:
     def export_state(self):
         with self._cp.cuda.Device(self.device_id):
             return self._cp.asnumpy(self.state)
+
+    def _free_memory_bytes(self):
+        """Free device memory (CUDA's, plus this pool's cached free blocks)."""
+        cp = self._cp
+        with cp.cuda.Device(self.device_id):
+            free, _total = cp.cuda.runtime.memGetInfo()
+            return free + cp.get_default_memory_pool().free_bytes()
+
+    def _release_device_memory(self):
+        """Return this device's cached free blocks to CUDA (a GPU worker,
+        between runs, so an idle worker holds no state-sized block)."""
+        with self._cp.cuda.Device(self.device_id):
+            self._cp.get_default_memory_pool().free_all_blocks()
 
     def expectation_values(self, state, observables):
         """Reduce on device; transfer bounded partial sums for CPU fsum.
@@ -454,9 +468,6 @@ class _CupyRuntime:
             return self._qubit_sandwich(rho, matrix, targets, copy=copy)
         return super()._apply_local_sandwich(rho, matrix, targets)
 
-    def execute_shot_batch(self, context, payload, seed_batch, policy):
-        raise BackendValidationError("CUDA engines do not use CPU shot workers")
-
 
 class _CupyStateRuntime(_CupyRuntime):
     """GPU probability sampling with the existing CPU random stream."""
@@ -466,6 +477,10 @@ class _CupyStateRuntime(_CupyRuntime):
             return self._cp.asnumpy(self._device_probabilities())
 
     def sample_indices(self, shots, rng):
+        return self._draw_indices(self._weigh_collapse(), rng.random(shots))
+
+    def _weigh_collapse(self):
+        """The normalized device cdf collapse and sampling invert."""
         cp = self._cp
         with cp.cuda.Device(self.device_id):
             cdf = cp.cumsum(self._device_probabilities())
@@ -473,10 +488,17 @@ class _CupyStateRuntime(_CupyRuntime):
             if not np.isfinite(total) or total <= 0:
                 raise ValueError("probabilities must have a finite, positive sum")
             cdf /= total
-            # Keep the seeded CPU random stream, transfer only uniforms and
-            # sampled indices; the full probability vector stays on device.
-            uniforms = cp.asarray(rng.random(shots))
-            return cp.asnumpy(cp.searchsorted(cdf, uniforms, side="right"))
+            return cdf
+
+    def _pick_index(self, weighed, rng):
+        return int(self._draw_indices(weighed, rng.random(1))[0])
+
+    def _draw_indices(self, cdf, uniforms):
+        # Keep the seeded CPU random stream, transfer only uniforms and
+        # sampled indices; the full probability vector stays on device.
+        cp = self._cp
+        with cp.cuda.Device(self.device_id):
+            return cp.asnumpy(cp.searchsorted(cdf, cp.asarray(uniforms), side="right"))
 
 
 # Ints per gate in the tile kernel's descriptor (see `_apply_tile_batch`).
@@ -724,41 +746,35 @@ class _GateTiles(_TileQueue):
 class CupySVEngine(  # pylint: disable=too-many-ancestors
     _GateTiles, _CupyStateRuntime, NumpySVEngine
 ):
-    """One device, complex128, ideal single-pass state vectors only."""
+    """One device, complex128 state vectors, ideal or per-shot trajectories.
 
-    _supported_execution_shapes = frozenset({"single_pass"})
+    Per-shot trajectories (channels, reset, mid-circuit measurement,
+    feedforward, loss) run on the device; every random draw comes from the
+    shot's host seed stream, the same draws the CPU engines make, so a seed
+    selects the same branches wherever the probabilities agree.
+    """
+
+    _supported_execution_shapes = frozenset({"single_pass", "per_shot"})
     _supports_shot_workers = False
     _supports_resident_expectation = True
+    # Device copies of gate matrices are kept across the shots of a run; past
+    # this many the cache is dropped, which bounds it when an engine is used
+    # directly, outside an execution scope (which clears it at the end).
+    _MATRIX_CACHE_LIMIT = 4096
 
     def __init__(self, device_id: int = 0):
         super().__init__("cupy-sv", device_id=device_id)
-
-    def materialize_execution(self, plan, **kwargs):
-        if any(
-            not isinstance(step, (ApplyMatrixStep, MeasurementStep))
-            or getattr(step, "condition", None) is not None
-            for step in plan
-        ):
-            raise BackendValidationError(
-                "runtime='cuda' supports ideal gates and terminal measurement only"
-            )
-        return super().materialize_execution(plan, **kwargs)
+        self._shift_matrices: dict[tuple[int, int], np.ndarray] = {}
 
     def execute_local(self, context, payload, policy):
-        if context.execution_shape != "single_pass":
-            raise BackendValidationError(
-                "runtime='cuda' does not support dynamic shots"
-            )
         if policy.shot_strategy in ("threads", "processes"):
             raise BackendValidationError("runtime='cuda' does not use CPU shot workers")
         return super().execute_local(context, payload, policy)
 
-    def execute_shot_batch(self, context, payload, seed_batch, policy):
-        raise BackendValidationError("runtime='cuda' does not support dynamic shots")
-
     def _allocate(self, size, initial_state):
         cp = self._cp
-        self._matrix_cache.clear()
+        if len(self._matrix_cache) > self._MATRIX_CACHE_LIMIT:
+            self._matrix_cache.clear()
         with cp.cuda.Device(self.device_id):
             if initial_state is not None:
                 return cp.array(initial_state, dtype=cp.complex128, copy=True).reshape(
@@ -789,10 +805,9 @@ class CupySVEngine(  # pylint: disable=too-many-ancestors
         total = probabilities.sum()
         return probabilities / cp.where(total > 0, total, 1.0)
 
-    def collapse(self, measured_subsystems, rng):
+    def _project(self, measured_subsystems, idx):
         cp = self._cp
         with cp.cuda.Device(self.device_id):
-            idx = int(self.sample_indices(1, rng)[0])
             basis = cp.arange(self.state.size, dtype=cp.int64)
             keep = cp.ones(self.state.size, dtype=cp.bool_)
             strides = _strides(self._dims)
@@ -803,13 +818,44 @@ class CupySVEngine(  # pylint: disable=too-many-ancestors
             new = cp.where(keep, self.state, 0.0)
             norm = cp.linalg.norm(new)
             self._state = new / cp.where(norm > 0, norm, 1.0)
-            return idx
 
-    def apply_channel(self, step, rng):
-        raise BackendValidationError("runtime='cuda' does not support channel noise")
+    def _weigh_kraus_jump(self, step):
+        """Every quantum-jump branch, with its squared norm reduced on the device.
 
-    def reset_subsystems(self, indices, rng):
-        raise BackendValidationError("runtime='cuda' does not support reset")
+        Only the norms cross to the host, where the shot's seed stream draws
+        the branch exactly as the CPU engines draw it (`_pick_kraus_jump`).
+        """
+        cp = self._cp
+        with cp.cuda.Device(self.device_id):
+            source = self.state
+            branches = [
+                self._apply_local(source.copy(), kraus, step.target_indices)
+                for kraus in step.kraus_ops
+            ]
+            return branches, np.array([float(cp.vdot(b, b).real) for b in branches])
+
+    def _take_kraus_jump(self, weighed, chosen):
+        branches, norms = weighed
+        with self._cp.cuda.Device(self.device_id):
+            return branches[chosen] / np.sqrt(norms[chosen])
+
+    def _shift_to_zero(self, indices, idx):
+        """As the CPU engines do, with each shift matrix built once.
+
+        The device matrix cache is keyed by the matrix object, so a fresh
+        array per reset would upload a new copy for every shot.
+        """
+        for index in indices:
+            outcome = _digit(idx, index, self._dims)
+            if outcome != 0:
+                key = (self._dims[index], -outcome)
+                if key not in self._shift_matrices:
+                    matrix = shift_matrix(*key)
+                    matrix.flags.writeable = False
+                    self._shift_matrices[key] = matrix
+                self._state = self._apply_local(
+                    self.state, self._shift_matrices[key], (index,)
+                )
 
 
 class CupyDMEngine(_CupyStateRuntime, NumpyDMEngine):

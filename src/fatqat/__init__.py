@@ -6,6 +6,8 @@ gate-level backends in :mod:`fatqat.simulator`, pulse models in
 :mod:`fatqat.emulator`, and noise declarations in :mod:`fatqat.noise`.
 """
 
+import logging
+
 from . import emulator
 from . import errors
 from . import noise
@@ -77,3 +79,8 @@ __all__ = [
     "compiler",
     "Result",
 ]
+
+# Silent unless the application configures logging; for the runtime's
+# decisions (devices, shot spreading, branching), for example:
+# logging.basicConfig(); logging.getLogger("fatqat").setLevel(logging.DEBUG)
+logging.getLogger(__name__).addHandler(logging.NullHandler())

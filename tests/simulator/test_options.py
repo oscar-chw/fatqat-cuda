@@ -549,3 +549,18 @@ def test_backend_copies_implementation_map_defensively():
     assert backend.run(
         program, shots=10, simulation_config={"seed": 0}
     ).result().get_counts() == {"1": 10}
+
+
+def test_process_workers_follow_the_cpu_affinity_mask(monkeypatch):
+    # Python 3.12 has no os.process_cpu_count, and os.cpu_count counts every
+    # core of the machine even when the process may use only a few.
+    from fatqat.simulator._execution_policy import _process_worker_ceiling
+
+    module = "fatqat.simulator._execution_policy.os"
+    monkeypatch.delattr(f"{module}.process_cpu_count", raising=False)
+    monkeypatch.setattr(f"{module}.cpu_count", lambda: 192)
+    monkeypatch.setattr(
+        f"{module}.sched_getaffinity", lambda pid: {4, 5, 6}, raising=False
+    )
+    assert _process_worker_ceiling(None) == 3
+    assert _process_worker_ceiling(7) == 7

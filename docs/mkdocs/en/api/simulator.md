@@ -84,10 +84,9 @@ results.
 
 `Simulator(method="SV", runtime="cuda", device_id=0)` selects the built-in
 NVIDIA GPU engine. It supports all four methods with complex128 values and
-ordinary FatQat results. CUDA statevectors require ideal single-pass circuits
-with terminal measurement. Density matrices also support finite channels,
-reset, intermediate measurement and feedforward, with dynamic shots executed
-serially. Unitary and superoperator execution follow the method restrictions
+ordinary FatQat results. Statevectors and density matrices also support
+finite channels, reset, intermediate measurement and feedforward, with dynamic
+shots executed serially. Unitary and superoperator execution follow the method restrictions
 above. Parameter sweeps and state observables are supported within these
 limits; readout confusion remains a classical reporting operation.
 
@@ -96,8 +95,9 @@ CUDA accepts `auto` or `serial` parallelism controls, `max_workers=None`,
 rejected. The superconducting
 matrix simulators inherit this coverage. `AtomArraySimulator` rejects CUDA,
 and pulse emulation has no CUDA runtime. `device_id=None` selects GPU 0 for
-CUDA, and a tuple of distinct ordinals spreads `run_sweep` rows over those GPUs;
-CPU runtimes require `None`. Availability failures occur at execution
+CUDA. A tuple of distinct ordinals, or `"all"` for every visible GPU, spreads
+`run_sweep` rows, and the shots of a trajectory run, over those GPUs; CPU
+runtimes require `None`. Availability failures occur at execution
 and are captured in an ERROR Job. See the [CUDA runtime](cupy-simulator.md) for
 installation, device selection, memory, Estimator transfers and precision.
 

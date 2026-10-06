@@ -62,6 +62,7 @@ from abc import abstractmethod
 from collections.abc import Sequence
 from contextlib import nullcontext
 from math import prod
+import os
 from typing import Any
 
 import numpy as np
@@ -87,6 +88,7 @@ from .._execution_contract import (
     _ExecutionPolicy as ExecutionPolicy,
 )
 from .base import MatrixEngine, _shot_seed_sequences
+from .branching import _run_branched
 
 # What `_sampled_unitary_branches` resolves a channel step to: branch
 # probabilities, unit-norm operators, identity flags - or None for a channel
@@ -301,6 +303,13 @@ class _NumpyMatrixEngine(MatrixEngine):
         """Return this runtime's local numeric-execution scope."""
         return nullcontext()
 
+    def _free_memory_bytes(self) -> int | None:
+        """Free host memory, for shot branching's budget; None where unknown."""
+        try:
+            return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+        except (AttributeError, OSError, ValueError):  # not reported here
+            return None
+
     def execute_local(
         self,
         context: ExecutionContext,
@@ -412,6 +421,10 @@ class _NumpyMatrixEngine(MatrixEngine):
         initial_occupied: frozenset[int] | None,
         initial_state: np.ndarray | None,
     ) -> list[tuple[int, ...]]:
+        if len(seed_sequences) > 1:
+            return _run_branched(
+                self, plan, seed_sequences, initial_occupied, initial_state
+            )
         snapshots = []
         for seed_sequence in seed_sequences:
             self.initialize(
@@ -464,12 +477,25 @@ class _NumpyMatrixEngine(MatrixEngine):
         while an explicit set seeds only those subsystems as occupied so
         `~fatqat.operations.Put` fills the rest.
         """
-        clbits = [0] * self._n_clbits
         occupied = (
             set(range(len(self._dims)))
             if initial_occupied is None
             else set(initial_occupied)
         )
+        return self._continue_shot(plan, rng, [0] * self._n_clbits, occupied)
+
+    def _continue_shot(
+        self,
+        plan: Sequence[ResolvedStep],
+        rng: np.random.Generator,
+        clbits: list[int],
+        occupied: set[int],
+    ) -> tuple[int, ...]:
+        """Run ``plan`` for one shot from its current state, bits and occupancy.
+
+        `_run_one_shot` starts it from the beginning; shot branching resumes
+        a shot here part-way through, in exactly the state it would have had.
+        """
         for step in plan:
             if isinstance(step, ApplyMatrixStep) and all(
                 t in occupied for t in step.target_indices
@@ -583,10 +609,33 @@ class NumpySVEngine(_NumpyMatrixEngine):
         the identity returns without touching an amplitude. Only one operator
         is ever applied, so the state needs no defensive copy.
         """
-        probabilities, unitaries, identities = branches
-        chosen = int(
+        self._take_sampled_unitary(
+            branches, targets, self._pick_sampled_unitary(branches, rng)
+        )
+
+    # Each stochastic step is three parts: weigh (read the state once), pick
+    # (one shot's draw from its own stream), take (build the picked branch).
+    # The one-shot methods compose them, and shot branching (branching.py)
+    # weighs once per group of shots in one state and takes each picked
+    # branch once, so both run the same arithmetic.
+
+    def _pick_sampled_unitary(
+        self,
+        branches: tuple[np.ndarray, tuple[np.ndarray, ...], tuple[bool, ...]],
+        rng: np.random.Generator,
+    ) -> int:
+        probabilities = branches[0]
+        return int(
             rng.choice(len(probabilities), p=probabilities / probabilities.sum())
         )
+
+    def _take_sampled_unitary(
+        self,
+        branches: tuple[np.ndarray, tuple[np.ndarray, ...], tuple[bool, ...]],
+        targets: tuple[int, ...],
+        chosen: int,
+    ) -> None:
+        _, unitaries, identities = branches
         if identities[chosen]:
             return
         self._state = self._apply_local(self.state, unitaries[chosen], targets)
@@ -604,16 +653,29 @@ class NumpySVEngine(_NumpyMatrixEngine):
         ``self.state`` across branches would let an in-place kernel (the Numba
         subclass's) corrupt the source mid-loop.
         """
+        weighed = self._weigh_kraus_jump(step)
+        self._state = self._take_kraus_jump(
+            weighed, self._pick_kraus_jump(weighed, rng)
+        )
+
+    def _weigh_kraus_jump(self, step: ApplyChannelStep) -> Any:
+        """Every branch ``K_i |psi>`` of the current state, with its squared norm."""
         source = self.state
         branches = [
             self._apply_local(source.copy(), kraus, step.target_indices)
             for kraus in step.kraus_ops
         ]
-        norms = np.array([np.real(np.vdot(b, b)) for b in branches])
+        return branches, np.array([np.real(np.vdot(b, b)) for b in branches])
+
+    def _pick_kraus_jump(self, weighed: Any, rng: np.random.Generator) -> int:
+        _, norms = weighed
         # CPTP guarantees the norms sum to <psi|psi> = 1; renormalize anyway so
         # rng.choice never rejects the distribution over float round-off.
-        chosen = int(rng.choice(len(branches), p=norms / norms.sum()))
-        self._state = branches[chosen] / np.sqrt(norms[chosen])
+        return int(rng.choice(len(norms), p=norms / norms.sum()))
+
+    def _take_kraus_jump(self, weighed: Any, chosen: int) -> np.ndarray:
+        branches, norms = weighed
+        return branches[chosen] / np.sqrt(norms[chosen])
 
     def _apply_local(
         self, state: np.ndarray, matrix: np.ndarray, targets: Sequence[int]
@@ -635,14 +697,24 @@ class NumpySVEngine(_NumpyMatrixEngine):
     def collapse(
         self, measured_subsystems: Sequence[int], rng: np.random.Generator
     ) -> int:
+        idx = self._pick_index(self._weigh_collapse(), rng)
+        self._project(measured_subsystems, idx)
+        return idx
+
+    def _weigh_collapse(self) -> Any:
+        return self.probabilities()
+
+    def _pick_index(self, weighed: Any, rng: np.random.Generator) -> int:
+        return int(rng.choice(len(weighed), p=weighed))
+
+    def _project(self, measured_subsystems: Sequence[int], idx: int) -> None:
+        """Keep the amplitudes whose measured digits are ``idx``'s; renormalize."""
         state = self.state
-        idx = int(rng.choice(len(state), p=self.probabilities()))
         keep = _measured_keep_mask(idx, measured_subsystems, self._dims, len(state))
         new = state.copy()
         new[~keep] = 0.0
         norm = np.linalg.norm(new)
         self._state = new / norm if norm > 0 else new
-        return idx
 
     def reset_subsystems(
         self, indices: Sequence[int], rng: np.random.Generator
@@ -653,7 +725,10 @@ class NumpySVEngine(_NumpyMatrixEngine):
         correctly conditioned on the sampled branch.
         """
         assert len(indices) >= 1, "reset_subsystems requires at least one index"
-        idx = self.collapse(indices, rng)
+        self._shift_to_zero(indices, self.collapse(indices, rng))
+
+    def _shift_to_zero(self, indices: Sequence[int], idx: int) -> None:
+        """Shift each of ``indices`` from its digit in ``idx`` back to ``|0>``."""
         for index in indices:
             outcome = _digit(idx, index, self._dims)
             if outcome != 0:
@@ -739,16 +814,26 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     def collapse(
         self, measured_subsystems: Sequence[int], rng: np.random.Generator
     ) -> int:
+        idx = self._pick_index(self._weigh_collapse(), rng)
+        self._project(measured_subsystems, idx)
+        return idx
+
+    def _weigh_collapse(self) -> Any:
+        return self.probabilities()
+
+    def _pick_index(self, weighed: Any, rng: np.random.Generator) -> int:
+        # MatrixEngine.sample_indices(1, rng), on probabilities weighed once.
+        return int(rng.choice(weighed.shape[0], size=1, p=weighed)[0])
+
+    def _project(self, measured_subsystems: Sequence[int], idx: int) -> None:
+        """Keep the block whose measured digits are ``idx``'s; renormalize."""
         rho = self.state
-        size = rho.shape[0]
-        idx = int(self.sample_indices(1, rng)[0])
         keep = _measured_keep_mask(
-            idx, measured_subsystems, self._dims, size, xp=self._xp
+            idx, measured_subsystems, self._dims, rho.shape[0], xp=self._xp
         )
         new = rho * keep[:, None] * keep[None, :]
         trace = self._xp.real(self._xp.trace(new))
         self._state = new / trace if trace > 0 else new
-        return idx
 
     def reset_subsystems(
         self, indices: Sequence[int], rng: np.random.Generator | None = None

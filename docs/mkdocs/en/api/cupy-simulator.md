@@ -51,7 +51,7 @@ The method names and aliases are the same as for CPU execution:
 
 | Method | CUDA coverage | Restrictions |
 | --- | --- | --- |
-| `statevector` / `SV` | Ideal single-pass evolution, terminal measurement and seeded counts | Rejects quantum channels, reset, intermediate measurement and feedforward |
+| `statevector` / `SV` | Ideal evolution and seeded counts; per-shot trajectories with finite channels, reset, intermediate measurement and feedforward | Dynamic circuits execute shots serially, each from its own seed stream, as NumPy does |
 | `density_matrix` / `DM` | Exact finite channels and reset; terminal or intermediate measurement, seeded counts and feedforward | Dynamic circuits execute shots serially |
 | `unitary` | The complete unitary map | Rejects channels, reset, measurement, conditions, counts and `initial_state` |
 | `superop` | The complete channel map, including finite channels and reset | Rejects measurement, conditions, counts and `initial_state` |
@@ -86,18 +86,22 @@ through an `ERROR` Job; `job.result()` raises the captured error.
 ## Devices and memory
 
 `device_id` selects an ordinal among the process's visible CUDA devices. A
-backend instance is not safe for concurrent calls. Outside a parameter sweep,
-run independent circuits on several GPUs with one instance in each process, each
+backend instance is not safe for concurrent calls. To run independent
+circuits on several GPUs, use one instance in each process, each
 with its own device ID or `CUDA_VISIBLE_DEVICES` selection. Nothing distributes
 one state across GPUs.
 
-For parameter sweeps, `device_id` also accepts a tuple of distinct ordinals.
-`run_sweep` then runs the rows on every listed GPU, one worker thread and engine
-per GPU, and returns results in input order; each row is computed exactly as it
-would be on one GPU. `run` uses the first listed device. If a row fails, the
-Job reports the earliest failing row, although rows on other GPUs may already
-have run. The speed-up is less than the number of GPUs, because part of each
-row's work runs in Python one thread at a time.
+`device_id` also accepts a tuple of distinct ordinals, or `"all"` for every
+visible GPU (counted when execution first starts). `run_sweep` then runs the
+rows on every listed GPU, one worker thread and engine per GPU, and returns
+results in input order; each row is computed exactly as it would be on one
+GPU. If a row fails, the Job reports the earliest failing row, although rows
+on other GPUs may already have run. A `run` whose shots are independent
+trajectories (channels, reset or mid-circuit measurement) splits its shots, in
+order, into one batch per GPU. Every shot draws from its own seed stream, so
+the counts equal a one-GPU run with the same seed. Any other `run` uses the
+first listed device. The speed-up is less than the number of GPUs, because
+part of each row's or shot's work runs in Python one thread at a time.
 
 ```python
 import numpy as np

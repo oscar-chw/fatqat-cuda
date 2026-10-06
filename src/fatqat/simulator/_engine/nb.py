@@ -112,7 +112,8 @@ from ...noise.nb import (
     _compile_channel_table,
     _compile_readout_table,
     _inverse_cdf_pick,
-    _jump_branch_kernel,
+    _jump_take_kernel,
+    _jump_weights_kernel,
     _kraus_stack,
     _kraus_superop_kernel,
     _report_digit_kernel,
@@ -2180,23 +2181,28 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
             self.state, step.matrix, step.target_indices, code, columns, values
         )
 
-    def _apply_kraus_jump(
-        self, step: ApplyChannelStep, rng: np.random.Generator
-    ) -> None:
-        """Sample one Kraus branch in Numba (quantum-jump unravelling).
+    def _weigh_kraus_jump(self, step: ApplyChannelStep):
+        """Every branch ``K_i |psi>`` (quantum-jump unravelling), weighed in Numba.
 
-        Each branch ``K_i |psi>`` is built by the local-apply fallback path
-        from its own copy of the state (the kernels update their input buffer
-        in place, so the source must not be reused), and
-        `_jump_branch_kernel` does the channel-specific part: branch weights,
-        the pick, the renormalization. Consumes exactly one rng draw, like the
-        NumPy twin and like measurement and reset.
+        Each branch is built by the local-apply fallback path from its own
+        copy of the state (the kernels update their input buffer in place, so
+        the source must not be reused). With `_pick_kraus_jump` and
+        `_take_kraus_jump` this is `_jump_branch_kernel` in three parts, and
+        consumes exactly one rng draw, like the NumPy twin and like
+        measurement and reset.
         """
         source = self.state
         branches = np.empty((len(step.kraus_ops), source.shape[0]), dtype=np.complex128)
         for i, kraus in enumerate(step.kraus_ops):
             branches[i] = self._apply_local(source.copy(), kraus, step.target_indices)
-        self._state = _jump_branch_kernel(branches, float(rng.random()))
+        weights, probabilities = _jump_weights_kernel(branches)
+        return branches, weights, probabilities
+
+    def _pick_kraus_jump(self, weighed, rng: np.random.Generator) -> int:
+        return int(_inverse_cdf_pick(weighed[2], float(rng.random())))
+
+    def _take_kraus_jump(self, weighed, chosen: int) -> np.ndarray:
+        return _jump_take_kernel(weighed[0], weighed[1], chosen)
 
     def _apply_local(
         self, state: np.ndarray, matrix: np.ndarray, targets: Sequence[int]
@@ -2453,16 +2459,19 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
         """Sample ``shots`` flat indices: draw uniforms in NumPy, invert in Numba."""
         return _sample_indices_kernel(self.probabilities(), rng.random(shots))
 
-    def collapse(
-        self, measured_subsystems: Sequence[int], rng: np.random.Generator
-    ) -> int:
-        """Sample one outcome, project onto it in Numba, return the flat index."""
-        index = int(_sample_index_kernel(self.probabilities(), float(rng.random())))
+    # Collapse is NumpySVEngine.collapse over these three parts: together
+    # they are _sample_index_kernel followed by the Numba projection.
+    def _weigh_collapse(self) -> np.ndarray:
+        return _normalized_cdf(self.probabilities())
+
+    def _pick_index(self, weighed: np.ndarray, rng: np.random.Generator) -> int:
+        return int(_searchsorted_right(weighed, float(rng.random())))
+
+    def _project(self, measured_subsystems: Sequence[int], idx: int) -> None:
         strides, dims = self._measured_layout(measured_subsystems)
         self._state = _project_kernel(
-            np.ascontiguousarray(self.state), strides, dims, index
+            np.ascontiguousarray(self.state), strides, dims, idx
         )
-        return index
 
     def _measured_layout(
         self, subsystems: Sequence[int]
@@ -2789,16 +2798,19 @@ class NumbaDMEngine(NumpyDMEngine):
         """Sample ``shots`` flat indices: draw uniforms in NumPy, invert in Numba."""
         return _sample_indices_kernel(self.probabilities(), rng.random(shots))
 
-    def collapse(
-        self, measured_subsystems: Sequence[int], rng: np.random.Generator
-    ) -> int:
-        """Sample one outcome, project onto it in Numba, return the flat index."""
-        index = int(_sample_index_kernel(self.probabilities(), float(rng.random())))
+    # As for NumbaSVEngine: NumpyDMEngine.collapse over a Numba weigh, pick
+    # and projection.
+    def _weigh_collapse(self) -> np.ndarray:
+        return _normalized_cdf(self.probabilities())
+
+    def _pick_index(self, weighed: np.ndarray, rng: np.random.Generator) -> int:
+        return int(_searchsorted_right(weighed, float(rng.random())))
+
+    def _project(self, measured_subsystems: Sequence[int], idx: int) -> None:
         strides, dims = _measured_layout(self._dims, measured_subsystems)
         self._state = _dm_project_kernel(
-            np.ascontiguousarray(self.state), strides, dims, index
+            np.ascontiguousarray(self.state), strides, dims, idx
         )
-        return index
 
 
 # --- gate fusion ---

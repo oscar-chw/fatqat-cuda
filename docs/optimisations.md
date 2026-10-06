@@ -9,7 +9,7 @@ uses no more memory.
 | --- | --- | --- | --- |
 | Gate tiles (r9); controls and diagonal gates take no tile bit (r10) | CUDA statevectors and unitaries (shared memory), Numba statevectors (CPU cache) | equal to the per-gate kernels | unchanged; tiles live in on-chip memory |
 | `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding; closer to the ideal circuit where rounding gates cancel | unchanged; a planning step on the host |
-| `device_id=(0, 1, ...)` for `run_sweep` | CUDA | bit-identical to a one-GPU sweep | one copy of the state per GPU used |
+| `device_id=(0, 1, ...)` or `"all"` for `run_sweep` and shot runs | CUDA | bit-identical to a one-GPU run | one copy of the state per GPU used |
 
 ## Gate tiles
 
@@ -112,14 +112,21 @@ there (at most `2.4·10⁻¹⁶` in the tests, unbiased).
 
 Where in the code: `src/fatqat/_backends/simplify.py`, called from `Simulator._prepare_execution` in `src/fatqat/simulator/simulator.py`; tests: `tests/simulator/test_simplify.py`; measurement: `perf/simplify_check.py`.
 
-## Several GPUs for one sweep
+## Several GPUs for sweeps and shots
 
 `Simulator(runtime="cuda", device_id=(0, 1)).run_sweep(...)` runs the
 rows on every listed GPU, one worker thread and engine per GPU, and returns
-results in input order. `run()` uses the first device. Scaling is limited by
-the per-row work done in Python, which runs one thread at a time.
+results in input order. A `run()` of independent shots (statevector
+trajectories, or a density matrix with mid-circuit measurement) splits its
+shots, in order, into one batch per GPU. Each shot draws only from its own
+seed stream, so the counts are those of one GPU running every shot. A row of
+a multi-GPU sweep runs its shots on its own GPU. `device_id="all"` lists every
+visible GPU, counted when execution first starts. Scaling is limited by the
+per-row or per-shot work done in Python, which runs one thread at a time.
 
-Where in the code: `Simulator._run_sweep_on_devices` in `src/fatqat/simulator/simulator.py`; tests: `tests/simulator/test_cuda_multi_device.py`.
+Where in the code: `Simulator._run_sweep_on_devices` and
+`Simulator._run_shots_on_devices` in `src/fatqat/simulator/simulator.py`;
+tests: `tests/simulator/test_cuda_multi_device.py`.
 
 ## Measured results
 
