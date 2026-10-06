@@ -1,0 +1,674 @@
+{
+ "description": "simplify=True against the ideal circuit (60-digit exact gate definitions) and its wall-time effect, both arms in one process.",
+ "measurement_date": "2026-10-07",
+ "code_revision": "fe0c021",
+ "software": {
+  "python": "3.12.3",
+  "numpy": "2.3.5",
+  "numba": "0.67.0",
+  "mpmath": "1.4.1"
+ },
+ "error_unit": "float64 machine epsilon, max-abs over amplitudes",
+ "accuracy_paired": {
+  "cuda": {
+   "mean_simplify_minus_plain_eps": -2.085908043546655,
+   "standard_error_eps": 0.29198313906714546,
+   "circuits_simplify_not_worse": 57,
+   "circuits": 60,
+   "mean_plain_eps": 2.7957065732865423,
+   "mean_simplify_eps": 0.7097985297398871,
+   "by_family": {
+    "redundant_clifford_t": {
+     "mean_simplify_minus_plain_eps": -5.833470646461136,
+     "standard_error_eps": 0.5336678651944798,
+     "circuits_simplify_not_worse": 12,
+     "circuits": 12,
+     "mean_plain_eps": 6.516973071483502,
+     "mean_simplify_eps": 0.6835024250223648
+    },
+    "plain_clifford_t": {
+     "mean_simplify_minus_plain_eps": -0.4461324156993198,
+     "standard_error_eps": 0.09099130875761417,
+     "circuits_simplify_not_worse": 11,
+     "circuits": 12,
+     "mean_plain_eps": 1.0516719287112746,
+     "mean_simplify_eps": 0.6055395130119549
+    },
+    "adder": {
+     "mean_simplify_minus_plain_eps": -2.5147412633842485,
+     "standard_error_eps": 0.19595759202230195,
+     "circuits_simplify_not_worse": 12,
+     "circuits": 12,
+     "mean_plain_eps": 3.5147412633842485,
+     "mean_simplify_eps": 1.0
+    },
+    "qaoa": {
+     "mean_simplify_minus_plain_eps": -0.07855953957389787,
+     "standard_error_eps": 0.048936940770455836,
+     "circuits_simplify_not_worse": 10,
+     "circuits": 12,
+     "mean_plain_eps": 0.8390934161501264,
+     "mean_simplify_eps": 0.7605338765762286
+    },
+    "phase_gadgets": {
+     "mean_simplify_minus_plain_eps": -1.5566363526146725,
+     "standard_error_eps": 0.15099251127022426,
+     "circuits_simplify_not_worse": 12,
+     "circuits": 12,
+     "mean_plain_eps": 2.0560531867035596,
+     "mean_simplify_eps": 0.49941683408888715
+    }
+   }
+  }
+ },
+ "accuracy_rows": [
+  {
+   "family": "redundant_clifford_t",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 6.805164666745248,
+    "cuda_simplify": 1.0734223887407717
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 5.824740504344405,
+    "cuda_simplify": 0.7945314826253465
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 5.501811971779113,
+    "cuda_simplify": 0.5837880351082819
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 5.179258127406848,
+    "cuda_simplify": 0.35704163227687497
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 9.740695438910526,
+    "cuda_simplify": 1.1012724671759175
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 9.87185187566108,
+    "cuda_simplify": 0.49865822664068377
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.945242797379506,
+    "cuda_simplify": 0.5016176781163314
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 4.673892380338563,
+    "cuda_simplify": 0.4970052570958084
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 4.887675556440659,
+    "cuda_simplify": 0.7462951555863103
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 6.6737229647348455,
+    "cuda_simplify": 0.40764501441189965
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 8.348846330315174,
+    "cuda_simplify": 0.7353674135571537
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 6.750774243746052,
+    "cuda_simplify": 0.9053843489329988
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.7731633143129555,
+    "cuda_simplify": 0.6167705530041139
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.4289079784757659,
+    "cuda_simplify": 0.4764997372979824
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.7913542073875719,
+    "cuda_simplify": 0.41205244936360014
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.3882079222173274,
+    "cuda_simplify": 0.7331124213423151
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.4211329116577913,
+    "cuda_simplify": 0.9974236154327186
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.0696343815525826,
+    "cuda_simplify": 0.7525996611745185
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.2101382561907046,
+    "cuda_simplify": 0.8573555058012962
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.3427081580974167,
+    "cuda_simplify": 0.2576777336402221
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.7663528980511474,
+    "cuda_simplify": 0.5723385610896243
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.1237609254625878,
+    "cuda_simplify": 0.6572006151925069
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.047013539548046,
+    "cuda_simplify": 0.5897110116025924
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.2576886515813985,
+    "cuda_simplify": 0.3437322912019678
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.5,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.0,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.5003829542174154,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.5003829542174154,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.5003829542174154,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.000932204667248,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.5,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.6634621720293374,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.0,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.0,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 5.5113519212621505,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 3.5,
+    "cuda_simplify": 1.0
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.9095484049073316,
+    "cuda_simplify": 0.8932660697849476
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.5518263184252633,
+    "cuda_simplify": 0.5518263184252633
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.8754207869642863,
+    "cuda_simplify": 0.7424775366764542
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.5748511347438464,
+    "cuda_simplify": 0.39825872738652124
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.547058904836997,
+    "cuda_simplify": 0.5384761988266766
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.5971803224075165,
+    "cuda_simplify": 1.5544937461712045
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.36237875240483647,
+    "cuda_simplify": 0.5277159154557257
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.6222551713339207,
+    "cuda_simplify": 0.5036059269053913
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.6836443856559403,
+    "cuda_simplify": 0.5959188951460964
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.2882377092169692,
+    "cuda_simplify": 1.117693331780976
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 0.5475163759763657,
+    "cuda_simplify": 0.6853644478345466
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.5092027269282446,
+    "cuda_simplify": 1.01730940452094
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.8036525495249514,
+    "cuda_simplify": 0.43394645293357825
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.029453858772977,
+    "cuda_simplify": 0.5967503608592355
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.50070588328241,
+    "cuda_simplify": 0.19197371476195813
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.2180335661041943,
+    "cuda_simplify": 0.21527879395892333
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.6734751971107642,
+    "cuda_simplify": 0.15214928624530866
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.3130479517405576,
+    "cuda_simplify": 0.1788061867059101
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.4750529651507434,
+    "cuda_simplify": 0.383294200014732
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.8278495792407017,
+    "cuda_simplify": 1.4724969678827877
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.3984250566721328,
+    "cuda_simplify": 0.43665388001712235
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.22062670543442,
+    "cuda_simplify": 0.6908250759897375
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 1.6883770378730916,
+    "cuda_simplify": 0.8220665174038886
+   }
+  },
+  {
+   "family": "phase_gadgets",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "cuda_plain": 2.5239378895357705,
+    "cuda_simplify": 0.41876057229346375
+   }
+  }
+ ],
+ "timing": [
+  {
+   "workload": "adder",
+   "qubits": 26,
+   "runtime": "cuda",
+   "steps_plain": 422,
+   "steps_simplify": 141,
+   "steps_merge_only": 141,
+   "median_plain_s": 0.2014223150908947,
+   "median_simplify_s": 0.21364994905889034,
+   "speedup": 0.9427679059983055,
+   "pass_s": 0.01973925204947591,
+   "pass_fraction_of_plain": 0.09799933061323562
+  },
+  {
+   "workload": "redundant_clifford_t",
+   "qubits": 26,
+   "runtime": "cuda",
+   "steps_plain": 1200,
+   "steps_simplify": 257,
+   "steps_merge_only": 260,
+   "median_plain_s": 0.9249667960684747,
+   "median_simplify_s": 0.38177706277929246,
+   "speedup": 2.4227930021118196,
+   "pass_s": 0.1077881520614028,
+   "pass_fraction_of_plain": 0.11653191500446392
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 26,
+   "runtime": "cuda",
+   "steps_plain": 312,
+   "steps_simplify": 155,
+   "steps_merge_only": 155,
+   "median_plain_s": 0.22119057597592473,
+   "median_simplify_s": 0.18395943008363247,
+   "speedup": 1.2023878084171389,
+   "pass_s": 0.01031553978100419,
+   "pass_fraction_of_plain": 0.04663643437560819
+  },
+  {
+   "workload": "phase_gadgets",
+   "qubits": 26,
+   "runtime": "cuda",
+   "steps_plain": 678,
+   "steps_simplify": 68,
+   "steps_merge_only": 153,
+   "median_plain_s": 0.30944600398652256,
+   "median_simplify_s": 0.11705754697322845,
+   "speedup": 2.643537405215694,
+   "pass_s": 0.026630595093593,
+   "pass_fraction_of_plain": 0.08605894001059021
+  },
+  {
+   "workload": "rotated_qft_control",
+   "qubits": 26,
+   "runtime": "cuda",
+   "steps_plain": 377,
+   "steps_simplify": 377,
+   "steps_merge_only": 377,
+   "median_plain_s": 0.14364250609651208,
+   "median_simplify_s": 0.15842422400601208,
+   "speedup": 0.9066953428224521,
+   "pass_s": 0.005488337017595768,
+   "pass_fraction_of_plain": 0.03820830732309979
+  }
+ ],
+ "failures": []
+}
