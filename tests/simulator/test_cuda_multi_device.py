@@ -348,7 +348,7 @@ def _fake_devices(count, noise, method="statevector"):
 
 
 @pytest.mark.parametrize("method", ["statevector", "density_matrix"])
-@pytest.mark.parametrize("shots", [2, 7, 1000])
+@pytest.mark.parametrize("shots", [2, 7, 100])
 def test_shots_spread_over_devices_give_one_device_counts(device_log, method, shots):
     program, theta, noise = _trajectory_program()
     program = program.assign_parameters({theta: 0.7})
@@ -689,3 +689,50 @@ def test_a_worker_that_cannot_start_waits_for_batches_already_running(
         job.result()
     # Device 1's batch was submitted first; it finished before the run failed.
     assert [device for _, device, _ in _logged(device_log)] == [1]
+
+
+def test_a_run_with_fewer_branches_than_shots_stays_on_one_device(device_log):
+    # Two mid-circuit measurements make at most 4 branches; split in order,
+    # every device's shots would meet all of them, so a second device would
+    # only evolve them again.
+    program = fq.Program(3, 3)
+    program.add(ops.H, 0)
+    program.add(ops.H, 1)
+    program.measure(0, 0)
+    program.add(ops.X, 2, condition=(0, 1))
+    program.measure(1, 1)
+    program.add(ops.H, 2)
+    program.measure_all()
+    options = {"shots": 64, "simulation_config": {"seed": 3}}
+    expected = Simulator("statevector", runtime="numpy").run(program, **options)
+    got = _fake_devices(3, None).run(program, **options)
+    assert got.result().get_counts() == expected.result().get_counts()
+    assert {device for _, device, _ in _logged(device_log)} <= {0}
+    few = _fake_devices(3, None).run(program, shots=4, simulation_config={"seed": 3})
+    few.result()
+    assert {device for _, device, _ in _logged(device_log)} == {0, 1, 2}
+
+
+def test_the_branch_bound_counts_each_random_step_but_the_last():
+    from fatqat._backends.steps import (
+        ApplyChannelStep,
+        ApplyMatrixStep,
+        MeasurementStep,
+        ResetStep,
+    )
+    from fatqat.simulator.simulator import _branch_bound
+
+    kraus = tuple(np.sqrt(0.25) * np.eye(2) for _ in range(4))
+    confusion = np.array([[0.9, 0.2], [0.1, 0.8]])
+    plan = (
+        ApplyChannelStep(kraus, (0,)),  # 4
+        MeasurementStep((0, 1), (0, 1)),  # 4 outcomes
+        MeasurementStep((2,), (2,), (confusion,)),  # 2 outcomes, 4 reports
+        ResetStep((3,)),  # 2
+        ApplyMatrixStep(np.eye(2), (0,)),  # deterministic
+        MeasurementStep((0,), (0,)),  # last: builds no state
+    )
+    dims = (2, 2, 2, 3)
+    assert _branch_bound(plan, dims, 10**6) == 4 * 4 * 4 * 3
+    assert _branch_bound(plan, dims, 50) == 50
+    assert _branch_bound(plan[-1:], dims, 50) == 1

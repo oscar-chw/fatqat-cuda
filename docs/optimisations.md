@@ -126,7 +126,10 @@ when execution first starts.
 
 A `run()` of independent shots (statevector trajectories, or a density matrix
 with mid-circuit measurement) splits its shots, in order, into one batch per
-GPU. Each shot draws only from its own seed stream, so the counts are those
+GPU, when its random steps have at least as many outcomes as there are shots.
+With fewer, every batch would meet the same branches and evolve them again (an
+ideal circuit with three mid-circuit measurements, 8 branches for 256 shots,
+ran at 0.90x on two GPUs), so such a run stays on one GPU. Each shot draws only from its own seed stream, so the counts are those
 of one GPU running every shot. The first GPU's batch runs in the calling
 process; each further GPU's runs in its own worker process, started by loky
 as a fresh interpreter (so no CUDA context is forked, and a script without a

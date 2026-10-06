@@ -98,7 +98,9 @@ results in input order; each row is computed exactly as it would be on one
 GPU. If a row fails, the Job reports the earliest failing row, although rows
 on other GPUs may already have run. A `run` whose shots are independent
 trajectories (channels, reset or mid-circuit measurement) splits its shots, in
-order, into one batch per GPU. Every shot draws from its own seed stream, so
+order, into one batch per GPU, when its random steps have at least as many
+outcomes as there are shots (with fewer, every GPU would evolve the same
+branches, so the run stays on the first). Every shot draws from its own seed stream, so
 the counts equal a one-GPU run with the same seed. The first GPU's batch runs
 in the calling process and each further GPU's in its own worker process: a
 fresh interpreter started by loky, kept between runs and closed after five

@@ -110,8 +110,8 @@ unchanged.
   stream in NumPy's order. Shots that share a state share the work on it
   (shot branching) on each runtime's per-shot loop, with counts
   bit-identical to running the shots one at a time. `device_id="all"` uses every visible GPU, and a
-  run's shots are split over them with one worker process per further GPU
-  ([how](docs/optimisations.md)).
+  run's shots are split over them with one worker process per further GPU,
+  when the shots can branch apart ([how](docs/optimisations.md)).
 
 What crosses between host and device on each kind of call. Everything not drawn as an arrow stays where it is.
 
@@ -226,7 +226,7 @@ Docs: see [docs/README.md](docs/README.md).
 
 - **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba's tiles, and sharing each tile batch between the Apple GPU and the CPU is 1.24–1.48× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
 - The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
-- Several GPUs help `run_sweep` and runs of independent shots (trajectories); a single ideal run uses one GPU, and so does a shot run that requests its final state. Two GPUs gave 1.64–1.90× on noisy runs at 20–26 qubits and nothing on short measured circuits; more than two were not measured for shots, and sweeps scale sublinearly because each row's Python-side work runs one thread at a time. One state is never split across GPUs.
+- Several GPUs help `run_sweep` and runs of independent shots (trajectories); a single ideal run uses one GPU, and so does a shot run that requests its final state or has fewer possible branches than shots. Two GPUs gave 1.64–1.90× on noisy runs at 20–26 qubits and nothing on short measured circuits; more than two were not measured for shots, and sweeps scale sublinearly because each row's Python-side work runs one thread at a time. One state is never split across GPUs.
 - CUDA trajectories draw from each shot's own seed stream in the order NumPy does, so a seed selects the same branches as `runtime="numpy"` wherever the branch probabilities agree to the last bit; GPU and CPU round-off differ by design (equal accuracy, not identical bits).
 - The CUDA 12 extra is packaged but has not been tested on a device.
 - The benchmark source documents belong to a private research record and are not published; `results/benchmarks.json` is a scrubbed transcription.

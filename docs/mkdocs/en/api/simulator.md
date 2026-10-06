@@ -97,7 +97,8 @@ rejected. The superconducting
 matrix simulators inherit this coverage. `AtomArraySimulator` rejects CUDA,
 and pulse emulation has no CUDA runtime. `device_id=None` selects GPU 0 for
 CUDA. A tuple of distinct ordinals, or `"all"` for every visible GPU, spreads
-`run_sweep` rows, and the shots of a trajectory run, over those GPUs; CPU
+`run_sweep` rows, and the shots of a trajectory run that can branch apart,
+over those GPUs; CPU
 runtimes require `None`. Availability failures occur at execution
 and are captured in an ERROR Job. See the [CUDA runtime](cupy-simulator.md) for
 installation, device selection, memory, Estimator transfers and precision.
