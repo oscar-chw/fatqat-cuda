@@ -52,6 +52,7 @@ commit they name, which is in the public history:
 | `simplify-check-cuda.json` | `simplify=True` on one GPU: accuracy against the ideal circuit, and timing at 26 qubits | `perf/simplify_check.py --runtimes cuda --qubits 26` |
 | `precision-r10.json` | The 110 circuits of `precision.json` on r10 code, every runtime | `perf/precision.py --require-gpu` |
 | `metal-prototype.json` | Apple-GPU prototype sharing each tile batch with Numba, against Numba alone; equality of every final state | `prototypes/metal/metal_engine.py` |
+| `differential-check.json` | 9,500 random circuits on fresh seeds checking every "same result" claim: tiles, exact simplifications, known inputs, Clifford+T equivalence, the Metal prototype | `perf/differential_check.py` |
 | `metal-fp64-check.json` | Software binary64 on the Apple GPU against the CPU: 8 million multiplies and adds, and a one-qubit gate | `prototypes/metal/fp64check.swift` |
 
 ## Earlier record

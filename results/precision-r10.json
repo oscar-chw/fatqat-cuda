@@ -1,7 +1,7 @@
 {
  "description": "Round-off of each runtime against a 60-digit oracle of the stored complex128 coefficients, in float64 epsilons (2**-52).",
  "measurement_date": "2026-10-06",
- "code_revision": "3a6158b",
+ "code_revision": "0bd7467",
  "software": {
   "python": "3.12.3",
   "numpy": "2.3.5",

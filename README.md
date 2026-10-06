@@ -171,7 +171,7 @@ on two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable 
 - **GPU accuracy is equal, not better.** r10 computes each part of a complex product with Kahan's algorithm for 2×2 determinants, within 2 ulp even under cancellation; GPU and Numba errors are still statistically indistinguishable (the GPU 0.047 eps ahead, standard error 0.033), and NumPy is about 0.1 eps ahead of both. Tiles give values equal to per-gate passes. `simplify` is bit-identical where it rewrites only exact gates, and closer to the ideal circuit where rounding gates cancel.
 - **On the GPU, `simplify` pays only on large states.** At 20 qubits a GPU applies a gate in microseconds and planning costs more than it saves; at 26 qubits it gains up to 2.75×, and on a Toffoli adder, whose gates already tile well, nothing.
 
-How each change keeps accuracy and memory: [docs/optimisations.md](docs/optimisations.md). Every row, r7/r8 history and how to rerun: [docs/benchmarks.md](docs/benchmarks.md).
+Every experiment, its parameters, what was tried and dropped, and how to rerun it: [docs/experiments.md](docs/experiments.md). How each change keeps accuracy and memory: [docs/optimisations.md](docs/optimisations.md). r7/r8 history: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Quick start
 

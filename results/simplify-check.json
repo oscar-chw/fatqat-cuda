@@ -1,7 +1,7 @@
 {
  "description": "simplify=True against the ideal circuit (60-digit exact gate definitions) and its wall-time effect, both arms in one process.",
  "measurement_date": "2026-10-06",
- "code_revision": "bef3cff",
+ "code_revision": "5756b1b",
  "software": {
   "python": "3.12.14",
   "numpy": "2.3.5",

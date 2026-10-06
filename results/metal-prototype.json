@@ -1,7 +1,7 @@
 {
  "description": "Prototype Metal engine (software binary64 tiles on the Apple GPU, sharing each tile batch with Numba on the CPU) against Numba alone; same process, arms alternating.",
  "measurement_date": "2026-10-06",
- "code_revision": "295dbe0",
+ "code_revision": "9e8f359",
  "equality": "bit patterns (tells -0.0 from +0.0), against Numba with its cache tiles",
  "signed_zeros_and_conjugated_gates_bit_identical": true,
  "rows": [
