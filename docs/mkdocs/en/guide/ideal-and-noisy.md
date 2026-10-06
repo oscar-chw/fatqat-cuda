@@ -1,17 +1,17 @@
 # Compare the same Program ideally and noisily
 
-Start with an ideal run, then change only the execution model. A
-[`NoiseModel`][fatqat.NoiseModel] describes errors and where they act; a backend
-decides how to realize them. The [`Program`][fatqat.Program] remains unchanged,
-so the difference between the two runs has a clear cause. Here, a measured Bell
-Program picks up both operation noise and readout confusion.
+Attach a [`NoiseModel`][fatqat.NoiseModel] to a simulator to study how errors
+affect your results. The model specifies which errors occur and where they
+apply; you can run the same [`Program`][fatqat.Program] with or without it.
+
+This example compares measurements of a Bell pair before and after adding
+gate noise and readout errors.
 
 ## Establish an ideal baseline
 
-Build the computation before configuring the ideal and noisy backends:
+Prepare a Bell pair and measure both qubits:
 
 ```pycon
->>> import numpy as np
 >>> import fatqat as fq
 >>> import fatqat.operations as ops
 >>> bell = fq.Program(2, 2)
@@ -27,18 +27,27 @@ Build the computation before configuring the ideal and noisy backends:
 ...     shots=4_000,
 ...     simulation_config={"seed": 7},
 ... ).result().get_counts()
->>> ideal_counts.get("01", 0) + ideal_counts.get("10", 0)
-0
+>>> ideal_counts
+{'00': 2013, '11': 1987}
 ```
 
-An ideal Bell run has no wrong-parity outcomes: its two classical digits
-always agree. The split between `00` and `11` still fluctuates because
-measurement is sampled.
+The two measured bits always agree. Each outcome has exact probability 0.5,
+but their counts differ slightly because the simulator samples 4,000 shots.
 
-## Change the execution, not the Program
+## Add gate and readout noise
 
-Add a finite channel after `CX` and classical confusion at measurement, then
-construct another backend:
+Use `operation=ops.CX` to apply depolarizing noise after each `CX` gate.
+Here, `p=0.12` mixes 88% of the two-qubit state with 12% of the maximally
+mixed state, which gives all four computational-basis outcomes equal
+probability. This acts jointly on the gate's two operands.
+
+Add readout confusion to model incorrectly reported bits. In the matrix below,
+columns identify the true bit and rows identify the reported bit: a true `0`
+is reported as `1` with probability 0.02, and a true `1` as `0` with
+probability 0.04. Without a target selector, this applies to each measured
+qubit.
+
+Pass the noise model to another simulator:
 
 ```pycon
 >>> noise = fq.NoiseModel()
@@ -61,18 +70,18 @@ construct another backend:
 ...     shots=4_000,
 ...     simulation_config={"seed": 7},
 ... ).result().get_counts()
->>> noisy_errors = noisy_counts.get("01", 0) + noisy_counts.get("10", 0)
->>> noisy_errors > 0
-True
->>> sum(noisy_counts.values())
-4000
+>>> noisy_counts
+{'00': 1853, '01': 201, '10': 204, '11': 1742}
+>>> disagreements = noisy_counts.get("01", 0) + noisy_counts.get("10", 0)
+>>> round(disagreements / sum(noisy_counts.values()), 3)
+0.101
 ```
 
-The depolarizing channel changes the quantum state after the entangling gate.
-The confusion matrix changes only the reported classical digit: in this
-example, a true `0` is reported as `1` two percent of the time, while a true
-`1` is reported as `0` four percent of the time. Both effects can create the
-wrong-parity bars below.
+The reported bits disagree in about 10.1% of these shots. Gate noise changes
+the quantum state, while readout confusion changes the reported bits. Both
+can produce `01` and `10`, so these counts alone do not tell you which error
+occurred. The unequal readout probabilities also favor reported zeros,
+shifting the balance between `00` and `11`.
 
 ![Side-by-side Bell-state histograms show only zero-zero and one-one ideally, while the noisy run also contains zero-one and one-zero outcomes.](../assets/generated/guide/ideal-and-noisy-1.png)
 
@@ -112,9 +121,6 @@ wrong-parity bars below.
     ideal_frequency = np.array([ideal.get(label, 0) for label in labels]) / shots
     noisy_frequency = np.array([noisy.get(label, 0) for label in labels]) / shots
 
-    assert ideal.get("01", 0) + ideal.get("10", 0) == 0
-    assert noisy.get("01", 0) + noisy.get("10", 0) > 0
-
     x = np.arange(len(labels))
     width = 0.36
     fig, ax = plt.subplots(figsize=(6.4, 3.5))
@@ -142,24 +148,23 @@ wrong-parity bars below.
     ax.legend(frameon=False)
     ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
+    plt.show()
     ```
-
-The comparison is controlled because both backends receive the same `bell`
-object, shot count, and seed. Only the execution model changes.
 
 ## Density matrices and sampled trajectories
 
-The density-matrix method applies supported finite channels as an exact mixed
-evolution before measurement. Counts are still sampled because they describe
-individual reported outcomes.
+The density-matrix method used here calculates the noisy state directly.
+Measurement counts are still sampled, so repeating a run with a different
+seed changes the counts.
 
-A statevector backend instead samples a channel trajectory when stochastic
-noise reaches the Program. That can use less state storage, but each shot
-represents one branch rather than the exact ensemble. Use density matrix when
-the exact noisy state or expectation value is the answer; use statevector
-trajectories when sampling branches is part of the intended study. The two
-approaches should agree statistically on repeated measurement outcomes, not
-shot for shot.
+A statevector simulator can also run this noise model. It samples individual
+noise trajectories, using less memory to represent the state. This is useful
+for larger circuits where storing a density matrix is too expensive. More
+shots improve the precision of the sampled distribution.
+
+Both methods describe the same noise model and should give statistically
+consistent measurement frequencies. Use a density matrix when you need the
+noisy state or an expectation value without sampling noise trajectories.
 
 ## Circuit channels and continuous noise
 
@@ -168,7 +173,8 @@ shot for shot.
 | Circuit simulator | finite probabilities and channels | at matched operation boundaries |
 | Physical emulator | rates and relaxation times | throughout elapsed Hamiltonian/Lindblad evolution |
 
-FatQat does not invent a gate duration to convert between the two. Move to
+Circuit noise probabilities and continuous-time rates require different
+inputs; FatQat does not convert between them automatically. Move to
 [Hamiltonian-level emulation](hamiltonian-emulation.md) for pulse duration,
 idle evolution, leakage, or continuous-time noise. For supported combinations,
 selectors, and validation rules, see the [noise-backend-support](../api/noise/backend-support.md#noise-backend-support) table

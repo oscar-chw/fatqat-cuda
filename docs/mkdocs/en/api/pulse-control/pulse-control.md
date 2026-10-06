@@ -4,6 +4,11 @@ title: "PulseControl"
 
 # PulseControl
 
+!!! warning "Pulse control under development"
+
+    The pulse control module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
 
 [`PulseControl`][fatqat.emulator.PulseControl] assigns a waveform to one physical control channel.
 Get the channel from a model's `control` selectors and use the result in a

@@ -300,7 +300,16 @@ class _NumpyMatrixEngine(MatrixEngine):
         """Retain the canonical plan and finalized deferred measurements."""
         del policy
         self.configure_system(system_dims, n_clbits)
+        self._retain_step_caches(plan)
         return plan, deferred_measurements
+
+    def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
+        """Retain only the effective plan's identity-keyed step resolutions.
+
+        Materialization calls this before resolving or compiling the plan.
+        Shot initialization leaves these entries intact for trajectory reuse.
+        Engines without step caches have nothing to prune.
+        """
 
     def _execution_scope(self, policy: ExecutionPolicy):
         """Return this runtime's local numeric-execution scope."""
@@ -563,7 +572,17 @@ class NumpySVEngine(_NumpyMatrixEngine):
         # value so a recycled id can never alias. Depends on the step's frozen
         # Kraus operators alone, not on system dims, so `initialize` must not
         # clear it - the per-shot loop re-initializes once per trajectory.
+        # Materializing the next plan prunes steps it no longer uses.
         self._channel_routes: dict[int, tuple[ApplyChannelStep, _Branches]] = {}
+
+    def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
+        # Keep shared sweep steps; release steps replaced by this plan.
+        active_ids = {id(step) for step in plan}
+        self._channel_routes = {
+            step_id: entry
+            for step_id, entry in self._channel_routes.items()
+            if step_id in active_ids
+        }
 
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         if initial_state is not None:

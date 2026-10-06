@@ -4,6 +4,11 @@ title: "SampledWaveform"
 
 # SampledWaveform
 
+!!! warning "Pulse control under development"
+
+    The pulse control module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
 
 [`SampledWaveform`][fatqat.emulator.SampledWaveform] describes a signal on a local time grid. Times use
 the model's time unit, while the channel determines the sample unit and whether

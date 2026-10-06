@@ -1978,7 +1978,17 @@ class NumbaSVEngine(_TileQueue, NumpySVEngine):
         # system dims - so `initialize` deliberately does not clear it; the
         # per-shot dynamic loop re-initializes per trajectory and must keep
         # its once-per-plan resolutions.
+        # Materializing the next plan prunes steps it no longer uses.
         self._structure_cache: dict[int, tuple] = {}
+
+    def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
+        super()._retain_step_caches(plan)
+        active_ids = {id(step) for step in plan}
+        self._structure_cache = {
+            step_id: entry
+            for step_id, entry in self._structure_cache.items()
+            if step_id in active_ids
+        }
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         dims_changed = tuple(int(dim) for dim in system_dims) != self._dims
@@ -2628,7 +2638,16 @@ class NumbaDMEngine(NumpyDMEngine):
         # system dims - so `initialize` deliberately does not clear it; the
         # per-shot dynamic loop re-initializes per trajectory and must keep
         # its once-per-plan resolutions.
+        # Materializing the next plan prunes steps it no longer uses.
         self._superop_cache: dict[int, tuple] = {}
+
+    def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
+        active_ids = {id(step) for step in plan}
+        self._superop_cache = {
+            step_id: entry
+            for step_id, entry in self._superop_cache.items()
+            if step_id in active_ids
+        }
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         dims_changed = tuple(int(dim) for dim in system_dims) != self._dims
@@ -2653,6 +2672,8 @@ class NumbaDMEngine(NumpyDMEngine):
         execution_plan = (
             tuple(_fuse_gate_channels(list(plan))) if policy.fusion else plan
         )
+        # Fusion can replace gates with new channel steps; retain those identities.
+        self._retain_step_caches(execution_plan)
         targets = {
             tuple(step.target_indices)
             for step in execution_plan
@@ -3146,6 +3167,7 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
         del deferred_measurements
         self.configure_system(system_dims, n_clbits)
         execution_plan = self._operator_execution_plan(plan, policy)
+        self._retain_step_caches(execution_plan)
         payloads = self._operator_payloads(list(execution_plan))
         row_dims = self._operator_row_dims()
         n_columns = prod(row_dims) if row_dims else 1
@@ -3285,6 +3307,16 @@ class NumbaSuperopEngine(  # pylint: disable=too-many-ancestors,abstract-method
 
     def __init__(self, name: str = "numba-superop"):
         super().__init__(name)
+
+    def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
+        # Reset payloads resolve synthesized channels, not the ResetSteps themselves.
+        reset_steps = tuple(
+            self._reset_channel(index)
+            for step in plan
+            if isinstance(step, ResetStep)
+            for index in step.reset_indices
+        )
+        super()._retain_step_caches(plan + reset_steps)
 
     def _operator_row_dims(self) -> tuple[int, ...]:
         return self._dims + self._dims

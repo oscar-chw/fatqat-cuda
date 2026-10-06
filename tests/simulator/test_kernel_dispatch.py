@@ -242,6 +242,8 @@ def test_structure_cache_pins_steps_and_reuses_resolutions():
         kernel_key=BuiltinKernelKey.I,
     )
     first = simulator._resolve_structure(step)
+    # Trajectory initialization resets state without discarding this plan's work.
+    simulator.initialize((2,), 0)
     assert simulator._resolve_structure(step) is first  # cached, not re-resolved
     assert simulator._structure_cache[id(step)][0] is step  # pinned identity
 

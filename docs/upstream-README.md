@@ -1,10 +1,4 @@
-# Upstream FatQat README
-
-> This is the README of [FatQat](https://github.com/spaceqat/fatqat), written by the FatQat contributors and licensed
-> under the Apache License, Version 2.0 ([LICENSE](../LICENSE), [NOTICE](../NOTICE)). It is kept verbatim as it
-> stood in this fork's README: the fork changed only its heading and the paragraph on installing CUDA. Moving it
-> into docs/ changed one relative link (the CUDA runtime guide). The fork itself is described in the
-> [fork README](../README.md).
+# FatQat
 
 FatQat is a quantum-computing toolkit built around one authoring interface:
 `Program`. Write the computation once, then choose how closely to model the
@@ -25,22 +19,19 @@ physically or mathematically realize.
 
 ## Installation
 
-FatQat requires Python 3.12 or newer and is not yet published on PyPI. Install
-it from a source checkout:
+FatQat requires Python 3.12 or newer. Install FatQat:
+
+```sh
+python -m pip install fatqat
+```
+
+To work on the development version, install from a source checkout:
 
 ```sh
 git clone https://github.com/spaceqat/fatqat.git
 cd fatqat
 python -m pip install .
 ```
-
-For built-in NVIDIA CUDA matrix execution in this checkout, install
-`python -m pip install '.[cuda13]'` (CUDA 13) or `'.[cuda12]'` (CUDA 12), then use
-`fq.simulator.Simulator("SV", runtime="cuda", device_id=0)`. Select exactly one
-CUDA extra. CUDA supports statevectors, density matrices, unitaries and
-superoperators with method-specific restrictions. The
-[CUDA runtime guide](mkdocs/en/api/cupy-simulator.md) describes coverage,
-precision and the tested environment. CPU installations need neither extra.
 
 ## Run a first Program
 
@@ -101,6 +92,9 @@ contains longer algorithm and physics case studies. The
 [API reference](https://fatqat.readthedocs.io/en/latest/api/)
 contains the exact signatures, supported operations, shapes, units, and
 validation contracts.
+
+Release notes are in the
+[changelog](https://github.com/spaceqat/fatqat/blob/main/CHANGELOG.md).
 
 ## Development
 

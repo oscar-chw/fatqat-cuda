@@ -24,6 +24,3 @@ the pages below are the plain Markdown pages in this folder.
 | Page | What it answers |
 | --- | --- |
 | [upstream-README.md](upstream-README.md) | The upstream FatQat README: what FatQat is, installation, a first Program, development. |
-| [compiler-v0.3-design.md](compiler-v0.3-design.md) | Upstream design note (in Chinese) for FatQat compiler v0.3. |
-| [compiler-executable-interface-design.md](compiler-executable-interface-design.md) | Upstream design: how compiler results run directly on the matrix simulators. |
-| [compiler-executable-interface-plan.md](compiler-executable-interface-plan.md) | Upstream implementation plan for that executable interface. |
