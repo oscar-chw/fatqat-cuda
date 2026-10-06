@@ -99,9 +99,37 @@ GPU. If a row fails, the Job reports the earliest failing row, although rows
 on other GPUs may already have run. A `run` whose shots are independent
 trajectories (channels, reset or mid-circuit measurement) splits its shots, in
 order, into one batch per GPU. Every shot draws from its own seed stream, so
-the counts equal a one-GPU run with the same seed. Any other `run` uses the
-first listed device. The speed-up is less than the number of GPUs, because
-part of each row's or shot's work runs in Python one thread at a time.
+the counts equal a one-GPU run with the same seed. The first GPU's batch runs
+in the calling process and each further GPU's in its own worker process: a
+fresh interpreter started by loky, kept between runs and closed after five
+idle minutes, which returns its free device memory after every batch. Any
+other `run`, and a `run` that requests a final state, uses the first listed
+device. Sweep rows run on threads, one per GPU; their speed-up is less than the
+number of GPUs, because part of each row's work runs in Python one thread at
+a time.
+
+If a GPU's batch fails, the Job is an ERROR whose `result()` raises the first
+GPU's own error if it had one, else the first failing GPU's in device order,
+with a note naming the device. Every batch finishes first, so none outlives
+the run. A worker that dies (a crash, or an out-of-memory kill) fails its run
+with an error saying so, and the next run starts a new one.
+
+Shots of one run that share a state share the work on it (shot branching):
+deterministic steps run once per group of shots, and each branch a random step
+picks is built once, while every shot still makes its own draws, in its own
+order. Counts are bit-identical to running the shots one at a time, on every
+runtime.
+
+FatQat logs nothing unless the application configures logging. To see which
+devices `"all"` found, how a run's shots were spread, and a summary of each
+shot-branching chunk:
+
+```python
+import logging
+
+logging.basicConfig()
+logging.getLogger("fatqat").setLevel(logging.DEBUG)
+```
 
 ```python
 import numpy as np

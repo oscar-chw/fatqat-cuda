@@ -1,7 +1,7 @@
 {
  "description": "Randomized differential check of every 'same result' claim, on fresh seeds.",
- "measurement_date": "2026-10-06",
- "code_revision": "dcaebe9",
+ "measurement_date": "2026-10-07",
+ "code_revision": "a7f5502",
  "seed_base": 1000000,
  "checks": [
   {
@@ -27,6 +27,26 @@
   {
    "claim": "Metal prototype vs Numba tiles, bit patterns",
    "cases": 300,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumpySVEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumpyDMEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumbaSVEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumbaDMEngine)",
+   "cases": 2500,
    "failures": 0
   }
  ]

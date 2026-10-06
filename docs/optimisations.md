@@ -1,7 +1,8 @@
-# Optimisations: what r9 and r10 change, and why accuracy and memory do not
+# Optimisations: what r9, r10 and r11 change, and why accuracy and memory do not
 
-r9 adds three things on top of the r8 CUDA engine, and r10 refines two of
-them. Each was kept only if it met three rules: it helps CPU-only users as
+r9 adds three things on top of the r8 CUDA engine, r10 refines two of them,
+and r11 makes runs of many shots share their work and use several GPUs. Each
+was kept only if it met three rules: it helps CPU-only users as
 well as GPU users, it is at least as accurate as the code it replaces, and it
 uses no more memory.
 
@@ -9,7 +10,8 @@ uses no more memory.
 | --- | --- | --- | --- |
 | Gate tiles (r9); controls and diagonal gates take no tile bit (r10) | CUDA statevectors and unitaries (shared memory), Numba statevectors (CPU cache) | equal to the per-gate kernels | unchanged; tiles live in on-chip memory |
 | `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding; closer to the ideal circuit where rounding gates cancel | unchanged; a planning step on the host |
-| `device_id=(0, 1, ...)` or `"all"` for `run_sweep` and shot runs | CUDA | bit-identical to a one-GPU run | one copy of the state per GPU used |
+| `device_id=(0, 1, ...)` or `"all"` for `run_sweep` and shot runs; one worker process per further GPU (r11) | CUDA | bit-identical to a one-GPU run | one copy of the state per GPU used |
+| Exact shot branching (r11) | every runtime, statevector and density-matrix runs of many shots | every shot's classical bits bit-identical to running it alone | pending states held to 1 GiB, or 8 states within half the free memory, then shot by shot |
 
 ## Gate tiles
 
@@ -116,17 +118,75 @@ Where in the code: `src/fatqat/_backends/simplify.py`, called from `Simulator._p
 
 `Simulator(runtime="cuda", device_id=(0, 1)).run_sweep(...)` runs the
 rows on every listed GPU, one worker thread and engine per GPU, and returns
-results in input order. A `run()` of independent shots (statevector
-trajectories, or a density matrix with mid-circuit measurement) splits its
-shots, in order, into one batch per GPU. Each shot draws only from its own
-seed stream, so the counts are those of one GPU running every shot. A row of
-a multi-GPU sweep runs its shots on its own GPU. `device_id="all"` lists every
-visible GPU, counted when execution first starts. Scaling is limited by the
-per-row or per-shot work done in Python, which runs one thread at a time.
+results in input order. `device_id="all"` lists every visible GPU, counted
+when execution first starts.
+
+A `run()` of independent shots (statevector trajectories, or a density matrix
+with mid-circuit measurement) splits its shots, in order, into one batch per
+GPU. Each shot draws only from its own seed stream, so the counts are those
+of one GPU running every shot. The first GPU's batch runs in the calling
+process; each further GPU's runs in its own worker process, started by loky
+as a fresh interpreter (so no CUDA context is forked, and a script without a
+`__main__` guard is not re-run), kept between runs, and closed after five idle
+minutes. Threads were tried first and lost: each shot's loop is mostly
+Python, threads take turns on the interpreter lock, and two GPUs on threads
+were 0.67–0.80× of one at 20 qubits. A run whose final state is requested
+keeps its shots on one GPU, and a row of a multi-GPU sweep runs its shots on
+its own GPU.
+
+Failures are reported, not hidden: every batch finishes before an error is
+raised; the first GPU's own error comes first, then the others in device
+order, each with a note naming its device. A worker that dies (a crash, or an
+out-of-memory kill) fails its run with an error saying so, and the next run
+starts a new one.
 
 Where in the code: `Simulator._run_sweep_on_devices` and
-`Simulator._run_shots_on_devices` in `src/fatqat/simulator/simulator.py`;
+`Simulator._run_shots_on_devices` in `src/fatqat/simulator/simulator.py`,
+`_run_shots_on_device_workers` in `src/fatqat/simulator/_engine/parallel.py`;
 tests: `tests/simulator/test_cuda_multi_device.py`.
+
+## Exact shot branching
+
+A run of many noisy or measured shots used to evolve every shot from the
+start, although most shots spend most of the circuit in a state some other
+shot is also in. Now shots travel in groups, one state per group:
+
+- a deterministic step (a gate, or on a density matrix a channel or reset) is
+  applied once per group;
+- a random step (a Kraus channel, a measurement, a reset of a statevector) is
+  weighed once on the group's state. Each shot then picks its branch from its
+  own seed stream, in its own order, exactly as it would alone, and each
+  picked branch is built once;
+- a conditioned step splits the group by the shots' classical bits.
+
+Every shot therefore makes the same draws through the same arithmetic as the
+one-shot-at-a-time loop, so counts and classical bits are bit-identical. The
+engines' random steps were split into three methods (weigh, pick, take), and
+their one-shot methods are now built from those same three, so both paths run
+literally the same code. Atom loss and reload continue shot by shot from the
+group's state.
+
+Memory stays bounded. A random step can split a group into as many parts as
+it has shots, so the parts share what the step read (the state, or a
+channel's weighed branches) and each builds its own state only when it runs.
+The largest part goes on in place and the others wait. Waiting parts may hold
+1 GiB of shared data, or 8 states where half the free device memory (or host
+memory, where the system reports it) allows; past that, a waiting part runs
+shot by shot at once. At the plan's last step no state is built at all, and
+shots run in chunks of 4,096.
+
+Two early versions were measured and fixed. The first built every
+measurement outcome's state at once, which held 65 GB at 24 qubits on a GPU.
+The second let the first shot's part go on in place: when that shot drew a
+rare noise branch, the large no-error group waited, overflowed the budget and
+ran shot by shot (396 of 400 shots in a test, and two GPUs at 0.46× of one at
+24 qubits, where one GPU's half of the shots happened to hit it). A fixed
+1 GiB budget also left room for a single state at 26 qubits.
+
+Where in the code: `src/fatqat/simulator/_engine/branching.py`, and the
+weigh/pick/take methods in `np.py`, `nb.py` and `cupy.py`; tests:
+`tests/simulator/test_shot_branching.py`, check 6 of
+`perf/differential_check.py`; measurement: `perf/branching_check.py`.
 
 ## Measured results
 

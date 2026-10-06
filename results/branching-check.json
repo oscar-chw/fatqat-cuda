@@ -1,0 +1,183 @@
+{
+ "description": "Check that exact shot branching pays, with counts equal shot for shot.",
+ "measurement_date": "2026-10-07",
+ "code_revision": "a7f5502",
+ "run_configuration": "one CPU, shots run serially in one process",
+ "arms": {
+  "per_shot": "every shot evolved alone from the start (the loop before r11)",
+  "branching": "r11 shot branching"
+ },
+ "note": "Numba rows force its per-shot path (kernel_parallelism='threads'); a default counts-only Numba run uses its compiled multi-shot kernel instead, which branching does not change.",
+ "noise_floor": 0.95,
+ "passed": true,
+ "rows": [
+  {
+   "runtime": "numpy",
+   "workload": "feedforward",
+   "qubits": 16,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 5.337305041961372,
+    "branching": 0.4727256251499057
+   },
+   "speedup": 11.290492323679011,
+   "counts_equal": true,
+   "distinct_outcomes": 193
+  },
+  {
+   "runtime": "numpy",
+   "workload": "low_noise",
+   "qubits": 16,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 4.268765541259199,
+    "branching": 0.7619607080705464
+   },
+   "speedup": 5.602343396510118,
+   "counts_equal": true,
+   "distinct_outcomes": 169
+  },
+  {
+   "runtime": "numpy",
+   "workload": "high_noise",
+   "qubits": 16,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 4.570063750259578,
+    "branching": 3.481646958272904
+   },
+   "speedup": 1.3126154963530796,
+   "counts_equal": true,
+   "distinct_outcomes": 200
+  },
+  {
+   "runtime": "numpy",
+   "workload": "feedforward",
+   "qubits": 18,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 22.203052500262856,
+    "branching": 1.8434678339399397
+   },
+   "speedup": 12.044176790874364,
+   "counts_equal": true,
+   "distinct_outcomes": 199
+  },
+  {
+   "runtime": "numpy",
+   "workload": "low_noise",
+   "qubits": 18,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 16.53513079183176,
+    "branching": 2.7208075830712914
+   },
+   "speedup": 6.0772878224510976,
+   "counts_equal": true,
+   "distinct_outcomes": 165
+  },
+  {
+   "runtime": "numpy",
+   "workload": "high_noise",
+   "qubits": 18,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 17.51642058417201,
+    "branching": 14.42809179238975
+   },
+   "speedup": 1.2140497049936452,
+   "counts_equal": true,
+   "distinct_outcomes": 197
+  },
+  {
+   "runtime": "numba",
+   "workload": "feedforward",
+   "qubits": 16,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 4.902335166931152,
+    "branching": 0.06920770928263664
+   },
+   "speedup": 70.83510229923313,
+   "counts_equal": true,
+   "distinct_outcomes": 193
+  },
+  {
+   "runtime": "numba",
+   "workload": "low_noise",
+   "qubits": 16,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 4.617931833025068,
+    "branching": 0.7239732500165701
+   },
+   "speedup": 6.378594558458305,
+   "counts_equal": true,
+   "distinct_outcomes": 169
+  },
+  {
+   "runtime": "numba",
+   "workload": "high_noise",
+   "qubits": 16,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 5.145025041885674,
+    "branching": 3.5921006249263883
+   },
+   "speedup": 1.4323165131241582,
+   "counts_equal": true,
+   "distinct_outcomes": 200
+  },
+  {
+   "runtime": "numba",
+   "workload": "feedforward",
+   "qubits": 18,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 9.866158875171095,
+    "branching": 0.13864166708663106
+   },
+   "speedup": 71.16301385070743,
+   "counts_equal": true,
+   "distinct_outcomes": 199
+  },
+  {
+   "runtime": "numba",
+   "workload": "low_noise",
+   "qubits": 18,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 7.548244915902615,
+    "branching": 1.2201694161631167
+   },
+   "speedup": 6.186226941860619,
+   "counts_equal": true,
+   "distinct_outcomes": 165
+  },
+  {
+   "runtime": "numba",
+   "workload": "high_noise",
+   "qubits": 18,
+   "shots": 200,
+   "repeats": 3,
+   "median_s": {
+    "per_shot": 7.708936125040054,
+    "branching": 6.127992499619722
+   },
+   "speedup": 1.257987199807839,
+   "counts_equal": true,
+   "distinct_outcomes": 197
+  }
+ ]
+}

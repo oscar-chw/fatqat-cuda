@@ -56,6 +56,22 @@ commit they name, which is in the public history:
 | `differential-check.json` | 9,500 random circuits on fresh seeds checking every "same result" claim: tiles, exact simplifications, known inputs, Clifford+T equivalence, the Metal prototype | `perf/differential_check.py` |
 | `metal-fp64-check.json` | Software binary64 on the Apple GPU against the CPU: 8 million multiplies and adds, and a one-qubit gate | `prototypes/metal/fp64check.swift` |
 
+## r11 records
+
+r11 runs noisy statevector trajectories on the GPU, shares the work of shots
+in one state (shot branching), and splits a run's shots over several GPUs.
+These files name the commit they measured, which is in the public history:
+
+| File | What it holds | Produced by |
+| --- | --- | --- |
+| `branching-check.json` | Shot branching against every shot alone, NumPy and Numba, 16–18 qubits, three workloads, arms alternating; counts asserted equal | `perf/branching_check.py --runtimes numpy numba --qubits 16 18` |
+| `shots-cuda.json` | The same on one GPU at 20–24 qubits, and two GPUs against one at 20–26 qubits (one worker process per further GPU), arm order alternating; counts asserted equal; load readings removed | `perf/shots_check.py out.json 20 22 24`, then `--no-per-shot 26` |
+| `precision-r11.json` | The 110 circuits of `precision.json` on r11 code: identical to `precision-r10.json` on every circuit and runtime | `perf/precision.py --require-gpu` |
+| `differential-check.json` | r10's 9,500 circuits plus 10,000 random plans comparing shot branching with the one-shot loop on every CPU engine, every shot's classical bits | `perf/differential_check.py` |
+
+`differential-check.json` replaces r10's file of the same name, whose checks
+it repeats.
+
 ## Earlier record
 
 `benchmarks.json` is a scrubbed transcription of the benchmark record behind

@@ -20,7 +20,16 @@ Shared conventions:
 - **Accuracy.** Maximum absolute error over amplitudes, in float64 machine
   epsilons (2⁻⁵²).
 
-## r10 (this branch)
+## r11 (this branch)
+
+| Experiment | Question | Parameters | Result | File |
+| --- | --- | --- | --- | --- |
+| Shot branching, CPU | Do shots that share a state, sharing the work on it, give the same counts faster? | NumPy and Numba, 16 and 18 qubits, 200 shots, 3 repeats, arms alternating in one process; workloads: an ideal circuit with three mid-circuit measurements and conditioned gates (`feedforward`), depolarizing noise after every gate at p = 0.002 (`low_noise`) and p = 0.05 (`high_noise`); baseline: every shot evolved alone (the loop before r11). Numba's per-shot path is forced (`kernel_parallelism="threads"`); its default compiled multi-shot kernel is not affected | NumPy 11.3–12.0× (feedforward), 5.6–6.1× (low noise), 1.21–1.31× (high noise); Numba 1.26–71×; never slower; counts equal on every repeat | [branching-check.json](../results/branching-check.json) |
+| Shot branching and two GPUs | Does branching pay on a GPU, and do two GPUs beat one for a run's shots? | 20–26 qubits, 256 shots, the three CPU workloads; arms: one GPU with every shot alone (20–24 qubits only), one GPU with branching, two GPUs with branching (one worker process for the second); 5 repeats after a warm-up, arm order alternating each repeat; CPU work pinned to a fixed set of cores | branching on one GPU: 19–77× (feedforward), 1.9–4.9× (low noise), 1.16–1.17× (high noise); two GPUs vs one: 1.64–1.90× on the noisy runs, 0.98–1.07× on feedforward; never slower than the 0.95 noise floor; counts equal in every arm; peak GPU memory 17.5 GB | [shots-cuda.json](../results/shots-cuda.json) |
+| Differential check | Do the "same result" claims hold on circuits the tests never saw? | The 9,500 circuits of r10's check, plus 10,000 random engine-level plans (2,500 each on NumPy and Numba, statevector and density matrix) with every step kind: both channel routes, multi-term conditions, readout confusion, remapped digits, reset, loss and reload, qubits and qutrits, given initial states and small memory budgets; branching against the one-shot loop, every shot's classical bits | 0 failures | [differential-check.json](../results/differential-check.json) |
+| Precision, r11 | Did any r11 change add round-off? | The 110 circuits of r10's precision check, every runtime | identical to r10 on every circuit and runtime | [precision-r11.json](../results/precision-r11.json) |
+
+## r10
 
 | Experiment | Question | Parameters | Result | File |
 | --- | --- | --- | --- | --- |
@@ -75,6 +84,17 @@ Measured during development; these numbers are not kept in results files.
 - **Several GPUs for one sweep:** works, and every test passes on two GPUs. It
   scales less than linearly, because each row's Python-side work runs one
   thread at a time, so no speed figure is published.
+- **Threads for a run's shots on several GPUs:** 0.67–0.80× of one GPU at 20
+  qubits (1.35–1.74× at 22), because each shot's loop is mostly Python and
+  threads take turns on the interpreter lock. One worker process per further
+  GPU replaced them.
+- **Building every measurement outcome's state at once** in shot branching:
+  65 GB of GPU memory at 24 qubits, where the outcomes now share one state.
+- **Letting the first shot's group go on in place** in shot branching: when
+  that shot drew a rare noise branch, the large no-error group waited,
+  overflowed the memory budget and ran shot by shot (396 of 400 shots in a
+  test). Two GPUs measured 0.46× of one at 24 qubits because of it, and a
+  fixed 1 GiB budget made 26-qubit runs 30× slower than they are now.
 
 ## Not tried
 
@@ -84,8 +104,14 @@ Measured during development; these numbers are not kept in results files.
   compute-bound. Tiles group gates into one pass over memory *without* changing any gate's
   arithmetic instead.
 - **Splitting one state across machines** (a compute cluster, MPI). Several
-  GPUs are used only for independent sweep rows on one machine; the largest
-  state is bounded by one device's memory.
+  GPUs are used only for independent sweep rows and shots on one machine; the
+  largest state is bounded by one device's memory.
+- **More than two GPUs for a run's shots.** Tests run on two; scaling to more
+  was not measured.
+- **Optimised libraries** (cuStateVec, Qiskit Aer, qsim). Each was checked on
+  paper against the rule that no change may add round-off: qsim computes in
+  single precision, Aer fuses gates by default, and cuStateVec documents
+  neither its rounding nor its determinism, so none was adopted untested.
 - **An all-cores CPU baseline for r9.** It is planned, and until then the
   35–42× headline names its 32-thread setting.
 
@@ -96,7 +122,9 @@ python perf/simplify_check.py --out s.json          # add --runtimes cuda --qubi
 python perf/tile_check.py --runtimes numba --out t.json
 python perf/precision.py --require-gpu --out p.json
 python perf/differential_check.py --out d.json
-python perf/scrub_check.py s.json t.json p.json d.json   # before publishing any output
+python perf/branching_check.py --runtimes numpy numba --qubits 16 18 --out b.json
+python perf/shots_check.py g.json 20 22 24             # on a machine with 2+ GPUs; then --no-per-shot 26
+python perf/scrub_check.py s.json t.json p.json d.json b.json   # before publishing any output
 ```
 
 The Metal prototype has its own instructions in
