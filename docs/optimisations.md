@@ -91,8 +91,11 @@ costs no more rounding (products summed into each amplitude) and fewer passes;
 the product is the exact result rounded once. A gate that rounds is moved,
 or moved past one that rounds, only when the merge removes rounding, because
 floating point neither distributes nor reassociates. Rewrites among unit
-gates and scaled permutations leave every value unchanged on the Numba and
-CUDA runtimes; the others change values only by removing rounding, so against
+gates leave every value unchanged on the Numba and CUDA runtimes, and so do
+rotations merged with `±1` permutations on Numba and on CUDA statevectors;
+on CUDA density matrices such a product can change the last bit, because
+that kernel associates its two-sided product `U ρ U†` by the matrix's
+structure. The others change values only by removing rounding, so against
 the ideal circuit the result is closer on average (mean 0.78 against 2.92 eps
 on 48 circuits), though removing one rounding can leave another's error
 unbalanced: 6 of 48 circuits ended up to 0.061 eps worse, and no per-circuit
