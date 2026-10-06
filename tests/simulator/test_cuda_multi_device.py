@@ -659,3 +659,33 @@ def test_a_failing_gpu_worker_names_its_device(device_log, monkeypatch):
     with pytest.raises(RuntimeError, match="device 2 lost") as caught:
         job.result()
     assert "in the GPU worker for CUDA device 2" in caught.value.__notes__
+
+
+def test_the_first_failing_gpu_worker_in_device_order_wins(device_log, monkeypatch):
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    monkeypatch.setenv("FATQAT_FAKE_LOST_DEVICE", "1,2")
+    job = _fake_devices(3, noise).run(program, shots=30, simulation_config={"seed": 7})
+    with pytest.raises(RuntimeError, match="device 1 lost") as caught:
+        job.result()
+    assert "in the GPU worker for CUDA device 1" in caught.value.__notes__
+
+
+def test_a_worker_that_cannot_start_waits_for_batches_already_running(
+    device_log, monkeypatch
+):
+    from fatqat.simulator._engine import parallel
+
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    shipped = parallel._device_executor
+    monkeypatch.setattr(
+        parallel,
+        "_device_executor",
+        lambda device: _DeadExecutor() if device == 2 else shipped(device),
+    )
+    job = _fake_devices(3, noise).run(program, shots=30, simulation_config={"seed": 9})
+    with pytest.raises(BackendExecutionError, match="CUDA device 2"):
+        job.result()
+    # Device 1's batch was submitted first; it finished before the run failed.
+    assert [device for _, device, _ in _logged(device_log)] == [1]

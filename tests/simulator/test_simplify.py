@@ -776,11 +776,22 @@ def test_exact_products_never_overflow_silently(bits):
             assert np.array_equal(got.astype(object), _exact_matmul(a, b))
 
 
-def test_deep_clifford_t_runs_simplify_exactly():
+def test_deep_clifford_t_runs_simplify_exactly(monkeypatch):
     # Alternating H and T grow the numerators fast; the merge must stop
     # before they overflow, and the result stays the circuit's own.
+    from fatqat._backends import simplify as module
+
+    refused = []
+    shipped = module._matmul
+
+    def matmul(a, b):
+        product = shipped(a, b)
+        refused.append(product is None)
+        return product
+
+    monkeypatch.setattr(module, "_matmul", matmul)
     program = fq.Program(2)
-    for _ in range(60):
+    for _ in range(400):
         for q in range(2):
             program.add(ops.H, q)
             program.add(ops.T, q)
@@ -794,6 +805,7 @@ def test_deep_clifford_t_runs_simplify_exactly():
         for s in (False, True)
     )
     np.testing.assert_allclose(simple, plain, rtol=0, atol=1e-12)
+    assert any(refused), "no product was too large: the guard was not reached"
 
 
 def test_blocks_that_keep_their_parts_emit_them_in_order(monkeypatch):
