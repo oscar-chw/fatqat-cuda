@@ -128,9 +128,11 @@ density-matrix, unitary and superoperator calculations with complex128
 precision. The CPU retains circuit preparation, validation, classical control
 and result construction; the evolving state or operator remains on the GPU.
 Use `Simulator("SV", runtime="cuda", device_id=0)` on an NVIDIA host, selecting
-another method when needed. Statevectors require ideal single-pass circuits;
-density matrices support channels, reset and dynamic measurements with serial
-shots. Operator methods retain their usual restrictions. CUDA does not
+another method when needed. Statevectors and density matrices support
+channels, reset and dynamic measurements, run per shot with shot branching;
+`device_id="all"` spreads a run's shots over every visible GPU when they can
+branch apart (at least as many outcomes of the random steps before the last
+as shots; for a density matrix, of its measurements). Operator methods retain their usual restrictions. CUDA does not
 accelerate atom occupancy or pulse emulation.
 
 Compare the same requested output and include host transfers in timing.
@@ -211,6 +213,27 @@ When tuning:
 For eligible combinations and error behavior, see
 [Simulator runtime and execution](../api/simulator.md). Fusion is opt-in,
 and explicit parallel modes can be rejected when the Program cannot use them.
+
+## Simplify circuits exactly with `simplify`
+
+Compiled or hand-written circuits often contain gates that cancel or
+collapse: `X` then `X`, `H X H` (which is `Z`), `T` then `T` (which is `S`),
+three `CX` gates that form a `SWAP`, or `CX RZ CX`, which is one diagonal
+`ZZ` rotation. With `simulation_config={"simplify": True}`, such runs are
+multiplied out before execution on every runtime, so the state is updated
+fewer times.
+
+Products are computed exactly, not in floating point, for unit gates
+(entries `0`, `±1`, `±i`: Paulis, `S`, `CX`, `SWAP`), the built-in `H`, `T`,
+`Tdg` and `SX`, and rotations conjugated by `±1` permutations. A run is
+replaced only by a product that rounds no more, so the result is closer to
+the ideal circuit on average (no per-circuit bound: a circuit can end up slightly worse): rewrites
+of unit gates leave Numba and CUDA values unchanged, and cancelled `H` or `T`
+gates no longer add their rounding.
+Two rotations are never merged with each other. From the all-zero start,
+gates that act as the identity on qubits still in a known basis state (a `CX`
+whose control is still `|0⟩`) are dropped. Measurements, resets and channels
+are never crossed. Measure the gain on your own circuit, as above.
 
 ## Account for physical emulation separately
 

@@ -1,7 +1,8 @@
-"""Numba cache tiles must reproduce the per-gate coset kernels bit for bit.
+"""Numba cache tiles must reproduce the per-gate coset kernels.
 
-Tiles reuse the coset kernels' per-amplitude arithmetic, so the comparison is
-exact array equality. Small tiles on small systems exercise many tiles, both
+Tiles reuse the coset kernels' per-amplitude arithmetic, so comparisons with
+the per-gate kernels are exact array equality; the one comparison with NumPy
+allows rounding. Small tiles on small systems exercise many tiles, both
 target orders, targets inside and outside the coalesced low qubits, and every
 structure (diagonal, permutation, dense).
 """
@@ -81,39 +82,47 @@ def test_tiles_are_bit_identical_to_per_gate_kernels(n, seed):
     )
 
 
-def test_runs_split_into_several_tiles_and_reads_flush_first():
+def test_reading_the_state_mid_run_sees_every_queued_gate():
     n = 10
     rng = np.random.default_rng(1)
-    steps = [ApplyMatrixStep(_unitary(rng, 2), (q,)) for q in range(n)] * 2
-    engine = _Tiled()
-    engine.initialize((2,) * n)
-    flushed = []
-    original = engine._flush_pending
-    engine._flush_pending = lambda: (flushed.append(len(engine._pending)), original())
-    for step in steps:
-        engine.apply(step)
-    assert engine._pending  # still queued until something reads the state
-    result = engine.export_state()
-    assert not engine._pending
-    assert sum(1 for size in flushed if size > 1) >= 3
-    initial = np.zeros(1 << n, dtype=np.complex128)
-    initial[0] = 1
-    np.testing.assert_array_equal(result, _run(_PerGate, n, steps, initial))
+    first = _random_steps(rng, n, 30)
+    second = _random_steps(rng, n, 30)
+    results = []
+    for engine_cls in (_Tiled, _PerGate):
+        engine = engine_cls()
+        engine.initialize((2,) * n)
+        for step in first:
+            engine.apply(step)
+        middle = engine.probabilities()
+        for step in second:
+            engine.apply(step)
+        results.append((middle, engine.export_state()))
+    np.testing.assert_array_equal(results[0][0], results[1][0])
+    np.testing.assert_array_equal(results[0][1], results[1][1])
 
 
-def test_small_states_and_mixed_radix_are_not_tiled():
-    engine = NumbaSVEngine()
-    engine.initialize((2,) * 12)  # 64 KiB: below the default threshold
-    engine.apply(ApplyMatrixStep(np.eye(2, dtype=np.complex128)[::-1], (0,)))
-    assert not engine._pending
-    tiled = _Tiled()
-    tiled.initialize((2,) * 6 + (3,))
-    tiled.apply(ApplyMatrixStep(np.eye(2, dtype=np.complex128)[::-1], (0,)))
-    assert not tiled._pending
+def test_mixed_radix_systems_are_unchanged():
+    # Tiles cover qubit statevectors only; a qutrit in the system must leave
+    # results exactly as the per-gate kernels compute them.
+    dims = (2,) * 6 + (3,)
+    rng = np.random.default_rng(2)
+    steps = _random_steps(rng, 6, 40)
+    steps.append(ApplyMatrixStep(_unitary(rng, 3), (6,)))
+    initial = rng.normal(size=192) + 1j * rng.normal(size=192)
+    initial /= np.linalg.norm(initial)
+    results = []
+    for engine_cls in (_Tiled, _PerGate):
+        engine = engine_cls()
+        engine.initialize(dims, initial_state=initial)
+        for step in steps:
+            engine.apply(step)
+        results.append(engine.export_state())
+    np.testing.assert_array_equal(results[0], results[1])
 
 
 def test_unitary_engine_never_queues():
-    class TiledUnitary(NumbaUnitaryEngine):  # pylint: disable=too-many-ancestors
+    # pylint: disable-next=too-many-ancestors,abstract-method
+    class TiledUnitary(NumbaUnitaryEngine):
         _TILE_BITS = 2
         _TILE_MIN_BYTES = 0
 
@@ -159,3 +168,191 @@ def test_public_run_above_the_threshold_matches_numpy():
         for runtime in ("numpy", "numba")
     ]
     assert values[1] == pytest.approx(values[0], abs=1e-12)
+
+
+def _controlled(matrix, value=1):
+    """``matrix`` on the later targets where the first target equals ``value``."""
+    size = len(matrix)
+    out = np.eye(2 * size, dtype=np.complex128)
+    out[value * size : (value + 1) * size, value * size : (value + 1) * size] = matrix
+    return out
+
+
+def _insular_steps(rng, n, depth):
+    """Gates whose controls and diagonal targets need no tile bit."""
+    steps = []
+    for _ in range(depth):
+        kind = int(rng.integers(10))
+        width = 3 if kind in (0, 1, 2, 5) else 2
+        targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+        if kind >= 8:
+            # Diagonals with controls and a moving target (CRZ, open-control
+            # and doubly controlled phases): some entries exactly 1.
+            phases = np.exp(1j * rng.normal(size=4))
+            matrix = [
+                np.diag([1, 1, phases[0], phases[1]]),
+                np.diag([phases[0], phases[1], 1, 1]),
+                np.diag([1] * 6 + list(phases[:2])),
+                np.diag([1] * 4 + list(phases)),
+                np.diag([1, phases[0]]),
+                np.diag([phases[0], 1]),
+            ][int(rng.integers(6))].astype(np.complex128)
+            width = matrix.shape[0].bit_length() - 1
+            targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+            steps.append(ApplyMatrixStep(matrix, targets))
+            continue
+        if kind == 0:
+            matrix = _controlled(_CX)  # Toffoli
+        elif kind == 1:
+            matrix = _controlled(_SWAP)  # Fredkin: two active targets
+        elif kind == 2:
+            matrix = np.diag(np.exp(1j * rng.normal(size=8)))
+        elif kind == 3:
+            matrix = _controlled(_unitary(rng, 2), value=int(rng.integers(2)))
+        elif kind == 4:
+            matrix = np.diag(np.exp(1j * rng.normal(size=4)))
+        elif kind == 5:
+            matrix = _controlled(_unitary(rng, 4))
+        elif kind == 6:
+            matrix = _CX
+        else:
+            targets = targets[:1]
+            matrix = _unitary(rng, 2)
+        steps.append(ApplyMatrixStep(matrix, targets))
+    return steps
+
+
+@pytest.mark.parametrize("n", [7, 9, 11])
+@pytest.mark.parametrize("seed", range(5))
+def test_controls_and_diagonals_anywhere_stay_bit_identical(n, seed):
+    rng = np.random.default_rng(1000 * n + seed)
+    initial = rng.normal(size=1 << n) + 1j * rng.normal(size=1 << n)
+    initial /= np.linalg.norm(initial)
+    steps = _insular_steps(rng, n, 80)
+    np.testing.assert_array_equal(
+        _run(_Tiled, n, steps, initial), _run(_PerGate, n, steps, initial)
+    )
+
+
+def test_a_fourier_transform_needs_one_pass_per_tile_of_hadamards():
+    # Controlled phases are diagonal and take no tile bit, so only the
+    # Hadamards' qubits fill tiles: three free bits per pass here, against one
+    # pass per gate if every target needed a bit.
+    n = 12
+    program = fq.Program(n)
+    for q in range(n):
+        program.add(ops.H, q)
+        for k, r in enumerate(range(q + 1, n), start=2):
+            program.add(ops.CPhase(2 * np.pi / 2**k), (r, q))
+    plan, _ = Simulator("statevector", runtime="numpy")._lower_program(program)
+    batches = []
+
+    class Counted(_Tiled):
+        def _apply_tile_batch(self, pending):
+            batches.append(len(pending))
+            super()._apply_tile_batch(pending)
+
+    tiled = _run(Counted, n, plan, None)
+    np.testing.assert_array_equal(tiled, _run(_PerGate, n, plan, None))
+    assert len(batches) <= 4
+
+
+def test_tile_forms_and_descriptors_place_controls_and_targets_exactly():
+    from fatqat.simulator._engine.base import _tile_form
+
+    crz = np.diag([1, 1, np.exp(-0.2j), np.exp(0.2j)])
+    form = _tile_form(crz)
+    assert form.diagonal and form.controls == ((0, 1),) and form.active == (1,)
+    np.testing.assert_array_equal(form.matrix, crz.diagonal()[2:])
+    open_control = np.diag([np.exp(-0.2j), np.exp(0.2j), 1, 1])
+    assert _tile_form(open_control).controls == ((0, 0),)
+    assert _tile_form(np.diag([1, 1, 1, -1])).controls == ((0, 1), (1, 1))
+    assert _tile_form(np.diag([np.exp(0.1j), np.exp(0.2j)])).controls == ()
+
+    engine = _Tiled()
+    engine.initialize((2,) * 9)
+    # Tile bits {0, 1, 2, 5, 6, 7}: subsystem 0 sits at tile position 0,
+    # subsystem 8 is outside the tile.
+    position = {bit: i for i, bit in enumerate((0, 1, 2, 5, 6, 7))}
+    ccrz = ApplyMatrixStep(np.diag([1] * 6 + [np.exp(-0.2j), np.exp(0.2j)]), (0, 8, 5))
+    gate = engine._tile_gate(ccrz, position)
+    assert gate.fixed == ((0, 1), (3, 0))  # control at position 0; target at 3
+    assert (gate.rest_mask, gate.rest_value) == (1 << 8, 1 << 8)
+    assert gate.targets == (3,)
+    outside = ApplyMatrixStep(np.diag([np.exp(0.1j), np.exp(0.2j)]), (8,))
+    assert engine._tile_gate(outside, position).targets == (-1 - 8,)
+    toffoli = ApplyMatrixStep(_controlled(_CX), (1, 2, 6))
+    assert engine._tile_gate(toffoli, position).fixed == ((1, 1), (2, 1), (4, 0))
+
+
+@pytest.mark.parametrize("name", ["NumbaUnitaryEngine", "NumbaSuperopEngine"])
+def test_numba_operator_engines_refuse_a_measurement_like_numpys(name):
+    # An operator is a map, not a state: collapse raises on every operator
+    # engine (on these two it used to fall through to the state engine's).
+    from fatqat.simulator._engine import nb as engine_nb
+
+    engine = getattr(engine_nb, name)()
+    with pytest.raises(NotImplementedError, match="cannot represent a measurement"):
+        engine.collapse((0,), np.random.default_rng(0))
+
+
+def _fill_step_caches(rng):
+    """Run 30 fresh plans on one tiled engine; return its per-step caches."""
+    from fatqat.simulator._engine import nb as engine_nb
+
+    engine = _Tiled()
+    n = 9
+    for _ in range(30):
+        engine.initialize((2,) * n)
+        for step in _random_steps(rng, n, 20) + _insular_steps(rng, n, 20):
+            engine.apply(step)
+        np.asarray(engine.state)  # flush the tile queue
+    # The structure cache holds gates and tile residuals: fill each alone, so
+    # neither kind's limit is met only because the other's cleared the cache.
+    for _ in range(80):
+        engine._resolve_structure(ApplyMatrixStep(_unitary(rng, 2), (0,)))
+    plain = len(engine._structure_cache)
+    for _ in range(80):
+        step = ApplyMatrixStep(_controlled(_unitary(rng, 2)), (0, 1))
+        engine._resolve_residual(step, engine._tile_form_of(step))
+    dm = engine_nb.NumbaDMEngine()
+    dm.initialize((2,))
+    for _ in range(80):
+        dm._resolve_superop(_fresh_channel(rng))
+    sv = engine_nb.NumbaSVEngine()
+    sv.initialize((2,))
+    for _ in range(80):
+        sv.apply_channel(_fresh_channel(rng), rng)
+    residual = [k for k in engine._structure_cache if isinstance(k, tuple)]
+    return {
+        "tile forms": len(engine._tile_forms or {}),
+        "structure": plain,
+        "residual structure": len(residual),
+        "superop": len(dm._superop_cache),
+        "channel routes": len(sv._channel_routes),
+    }
+
+
+def _fresh_channel(rng):
+    from fatqat._backends.steps import ApplyChannelStep
+
+    p = float(rng.uniform(0.01, 0.2))
+    return ApplyChannelStep(
+        (np.sqrt(1 - p) * np.eye(2), np.sqrt(p) * np.array([[0, 1], [1, 0]])), (0,)
+    )
+
+
+def test_per_step_caches_stay_bounded_across_many_plans(monkeypatch):
+    # A long-lived engine (a GPU worker, a notebook kernel) sees new plan
+    # steps on every run; its per-step caches must not keep all of them.
+    from fatqat.simulator._engine import base, nb as engine_nb, np as engine_np
+
+    # Control: unbounded, every cache outgrows the limit the test sets below,
+    # so each bound is actually reached.
+    unbounded = _fill_step_caches(np.random.default_rng(3))
+    assert all(size > 50 for size in unbounded.values()), unbounded
+    monkeypatch.setattr(base, "_TILE_FORM_CACHE_LIMIT", 50)
+    monkeypatch.setattr(engine_nb, "_STRUCTURE_CACHE_LIMIT", 50)
+    monkeypatch.setattr(engine_np, "_CHANNEL_ROUTE_CACHE_LIMIT", 50)
+    bounded = _fill_step_caches(np.random.default_rng(3))
+    assert all(size <= 50 for size in bounded.values()), bounded

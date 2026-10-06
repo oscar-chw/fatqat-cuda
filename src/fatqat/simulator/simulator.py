@@ -7,6 +7,9 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 from __future__ import annotations
 
 import copy
+import logging
+from math import prod
+import threading
 import warnings
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -60,7 +63,12 @@ from ..result import (
     reduce_to_counts,
 )
 from ._engine.base import MatrixEngine, _shot_seed_sequences
-from ._engine.parallel import _run_shots_in_processes
+from ._engine.parallel import (
+    _SERIAL as _SERIAL_SHOTS,
+    _run_shots_in_processes,
+    _run_shots_on_device_workers,
+    _split_into_batches,
+)
 from ._engine.np import (
     NumpyDMEngine,
     NumpySuperopEngine,
@@ -107,6 +115,37 @@ from .._backends.steps import (
     ResetStep,
     ResolvedStep,
 )
+
+_LOG = logging.getLogger(__name__)
+
+
+def _branch_bound(plan, system_dims, cap: int, *, stochastic: bool) -> int:
+    """An upper bound on the groups shot branching splits a run into, up to ``cap``.
+
+    Each random step before the last multiplies it by its number of outcomes;
+    the last builds no state, so it splits nothing. Channels and resets are
+    random only for a ``stochastic`` method (statevectors): a density matrix
+    applies them exactly, and only its measurements branch. Shots are spread over devices in
+    order, so when there are fewer branches than shots each device's batch
+    meets the same branches and evolves them again: an ideal circuit with
+    three mid-circuit measurements (8 branches, 256 shots) ran at 0.90x on
+    two GPUs. Only runs whose shots can all end up apart are spread.
+    """
+    bound = 1
+    for step in plan[:-1]:
+        if isinstance(step, ApplyChannelStep) and stochastic:
+            bound *= len(step.kraus_ops)
+        elif isinstance(step, MeasurementStep):
+            outcomes = prod(system_dims[q] for q in step.measured_indices)
+            # Readout confusion splits the reported bits of one outcome.
+            bound *= outcomes * outcomes if step.confusions else outcomes
+        elif isinstance(step, ResetStep) and stochastic:
+            bound *= prod(system_dims[q] for q in step.reset_indices)
+        elif isinstance(step, LossStep):
+            bound *= 2 ** len(step.target_indices)
+        if bound >= cap:
+            return cap
+    return bound
 
 
 def _dispatch_execution(
@@ -323,7 +362,7 @@ class Simulator:
         method: str = "statevector",
         *,
         runtime: str = "numba",
-        device_id: int | Sequence[int] | None = None,
+        device_id: int | Sequence[int] | str | None = None,
         implementation_map: MatrixImplementationMap | None = None,
         noise: NoiseModel | None = None,
         channel_implementation_map: ChannelImplementationMap | None = None,
@@ -339,18 +378,29 @@ class Simulator:
                 runtime's threaded and fusion paths. ``"numpy"`` executes the
                 reference kernels directly without JIT warm-up. Both support
                 every method. ``"cuda"`` executes all four methods on an
-                NVIDIA GPU using complex128 values. CUDA statevectors require
-                ideal single-pass circuits with terminal measurement. Density
+                NVIDIA GPU using complex128 values. Statevectors and density
                 matrices also support channels, reset, intermediate measurement
-                and feedforward, with dynamic shots executed serially. Operator
+                and feedforward, run per shot with shot branching; each
+                statevector shot draws from its own seed stream as the CPU
+                engines do. Operator
                 methods retain their usual restrictions. CUDA rejects CPU
                 workers and fusion.
                 Runtimes are not promised to be bit-identical.
             device_id: Nonnegative CUDA device ordinal among the process's
                 visible GPUs. ``None`` selects device 0 for ``runtime="cuda"``.
-                A tuple of distinct ordinals spreads ``run_sweep`` rows across
-                those devices, one worker thread per device; ``run()`` uses
-                the first. CPU runtimes require ``None``. CuPy and device
+                A tuple (or list) of distinct ordinals uses those devices,
+                and ``"all"`` every visible one: ``run_sweep`` spreads its
+                rows across them (a thread per device), and a run of
+                independent shots (trajectories) spreads its shots, in order,
+                over a worker process per further device, so counts equal a
+                one-device run with the same seed on GPUs of the same model.
+                Shots are spread only when they can all branch apart (the
+                run's random steps before its last, which for a density
+                matrix are its measurements alone, have at least as many
+                outcomes as there are shots); otherwise every device would evolve the same
+                branches, so the run stays on the first device, as does
+                anything else. CPU runtimes require
+                ``None``. CuPy and device
                 availability are checked when execution starts; failures
                 produce an ERROR Job whose ``result()`` re-raises the error.
             implementation_map: Matrix rules for supported operations.
@@ -387,7 +437,14 @@ class Simulator:
                 "device_id is only supported by runtime='cuda'"
             )
         device_ids: tuple = ()
-        if normalized_runtime == "cuda":
+        # "all" is resolved on first execution, which may import CuPy; until
+        # then device 0, which every visible set contains, stands for it.
+        self._all_devices = normalized_runtime == "cuda" and (
+            isinstance(device_id, str) and device_id == "all"
+        )
+        if self._all_devices:
+            device_ids = (0,)
+        elif normalized_runtime == "cuda":
             device_ids = (
                 tuple(device_id)
                 if isinstance(device_id, (tuple, list))
@@ -401,8 +458,8 @@ class Simulator:
                 or any(type(d) is not int or d < 0 for d in device_ids)
             ):
                 raise BackendValidationError(
-                    "device_id must be one ordinal or a non-empty tuple of "
-                    f"distinct ordinals, got {device_id!r}"
+                    "device_id must be one ordinal, a non-empty tuple of "
+                    f"distinct ordinals, or 'all', got {device_id!r}"
                 )
         self._device_ids = device_ids
         # The single dispatch point; the canonical method name doubles as the
@@ -452,12 +509,12 @@ class Simulator:
         # reused, while every execution allocates or resets evolving state.
         # A backend instance is not safe for concurrent run() calls.
         if normalized_runtime == "cuda":
-            # Further devices get their engines when a sweep first uses them,
-            # and keep them, like the first, for later sweeps.
+            # Further devices get their engines when a sweep or a shot run
+            # first uses them, and keep them, like the first, for later runs.
             self._engine = self._engine_cls(device_id=device_ids[0])
         else:
             self._engine = self._engine_cls()
-        self._sweep_engines: dict[int, MatrixEngine] = {}
+        self._device_engines: dict[int, MatrixEngine] = {}
 
     @property
     def method(self) -> str:
@@ -720,13 +777,18 @@ class Simulator:
                   combine compatible adjacent operations. ``True`` requires
                   Numba with ``density_matrix``, ``unitary``, or ``superop``.
                 - ``"simplify"`` (``bool``, default ``False``): Whether to
-                  merge and cancel gates that never round (entries ``0``,
-                  ``+-1``, ``+-i``, one per row and column, such as Paulis,
-                  ``S``, ``CX`` and ``SWAP``) before execution, for example
-                  ``X`` then ``X``, or ``S`` then ``S`` into ``Z``. Other gates
-                  are never merged or moved; channels, measurements, resets,
-                  loss and reloads are never crossed. Numba and CUDA results
-                  have the same values; NumPy's may differ in the last bit.
+                  simplify the circuit with exact gate algebra before
+                  execution: products of unit gates (entries ``0``, ``+-1``,
+                  ``+-i``) and of the built-in ``H``, ``T``, ``Tdg`` and ``SX``
+                  are computed exactly, so ``X`` then ``X`` cancels, ``S``
+                  then ``S`` becomes ``Z``, and ``H X H`` becomes ``Z``. A run
+                  is replaced only by a product that rounds no more, so the
+                  result is closer to the ideal circuit on average; rewrites
+                  among unit gates leave Numba and CUDA values unchanged.
+                  From the all-zero start, gates that act as the identity on
+                  subsystems still in a known basis state are dropped.
+                  Channels, measurements, resets, loss and reloads are never
+                  crossed.
                   Not supported by ``run_sweep``.
 
                 Unknown or incompatible entries are rejected.
@@ -909,7 +971,11 @@ class Simulator:
         )
         template = prepared.plan
         assert isinstance(template, planning._ParametricPlan)
-        if len(self._device_ids) > 1 and len(rows) > 1:
+        try:
+            devices = self._devices()
+        except Exception as exc:  # execution-stage failure, as in the loop below
+            return Job(status="ERROR", error=exc)
+        if len(devices) > 1 and len(rows) > 1:
             return self._run_sweep_on_devices(template, rows, param_order, prepared)
         results: list[Result] = []
         for row in rows:
@@ -932,44 +998,67 @@ class Simulator:
     ) -> Job[list[Result]]:
         """Run sweep rows on every configured device, one thread per device.
 
-        Rows are materialized up front, so binding and rule failures still
-        raise directly before any execution. Each device runs its own engine
-        on rows ``k, k + D, k + 2D, ...`` in order; a backend clone carries
-        that engine, since a backend instance is not safe for concurrent runs
-        on one engine. Results return in input order; if any row fails, the
-        job carries the earliest failing row's error, as in the serial loop,
-        although rows after it on other devices may already have run.
+        Each device materializes and runs its own rows ``k, k + D, k + 2D,
+        ...`` in order, so only one row plan per device is alive at a time. A
+        backend clone carries that device's engine, since a backend instance
+        is not safe for concurrent runs on one engine. Outcomes are read back
+        in row order, so the earliest failing row decides, exactly as in the
+        serial loop: a binding or rule failure is raised directly, and an
+        execution failure becomes an ERROR job. Once a row fails, no device
+        starts a later row; earlier rows on other devices still finish.
         """
-        plans = [
-            template.materialize(tuple(row[parameter] for parameter in param_order))
-            for row in rows
-        ]
         devices = self._device_ids
         clones = []
         for index, device in enumerate(devices):
             clone = copy.copy(self)
+            # Each row runs on its clone's device alone: spreading its shots
+            # too would share the other devices' engines between threads.
+            clone._device_ids = (device,)
             if index:
-                if device not in self._sweep_engines:
-                    self._sweep_engines[device] = self._engine_cls(device_id=device)
-                clone._engine = self._sweep_engines[device]
+                clone._engine = self._device_engine(device)
             clones.append(clone)
 
-        def run_device(index: int) -> list[tuple[int, Job[Result]]]:
-            clone = clones[index]
-            return [
-                (row, clone._execute_plan(plans[row], prepared))
-                for row in range(index, len(plans), len(devices))
-            ]
+        # Per row: a Job, or the exception its materialization raised.
+        outcomes: list[Job[Result] | Exception | None] = [None] * len(rows)
+        # Earliest failed row so far; rows after it need not run.
+        first_failure = [len(rows)]
+        lock = threading.Lock()
 
-        jobs: list[Job[Result] | None] = [None] * len(plans)
-        with ThreadPoolExecutor(max_workers=len(devices)) as pool:
-            for finished in pool.map(run_device, range(len(devices))):
-                for row, job in finished:
-                    jobs[row] = job
+        def run_device(index: int) -> None:
+            clone = clones[index]
+            for row in range(index, len(rows), len(devices)):
+                if row > first_failure[0]:
+                    return
+                try:
+                    plan = template.materialize(
+                        tuple(rows[row][parameter] for parameter in param_order)
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    # Re-raised below in row order, as the serial loop would.
+                    outcomes[row] = exc
+                else:
+                    outcomes[row] = clone._execute_plan(plan, prepared)
+                    if outcomes[row].status == "DONE":
+                        continue
+                with lock:
+                    first_failure[0] = min(first_failure[0], row)
+                return
+
+        try:
+            with ThreadPoolExecutor(max_workers=len(devices)) as pool:
+                list(pool.map(run_device, range(len(devices))))
+        finally:
+            # The extra devices' engines are kept for later sweeps, but not
+            # their last row's state: nothing reads it, and it would hold a
+            # full state on each of those devices until the backend is freed.
+            for device in devices[1:]:
+                self._device_engines[device].state = None
         results: list[Result] = []
-        for job in jobs:
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                raise outcome
             try:
-                results.append(job.result())
+                results.append(outcome.result())
             except Exception as exc:  # execution-stage failure
                 return Job(status="ERROR", error=exc)
         return Job(status="DONE", result=results)
@@ -1094,7 +1183,11 @@ class Simulator:
                 program, context=lowering
             )
             if simulation.simplify:
-                plan = simplify_plan(plan, engine_allocation.system_dims)
+                plan = simplify_plan(
+                    plan,
+                    engine_allocation.system_dims,
+                    zero_start=initial_state is None and not self._is_operator,
+                )
                 facts, initial_occupied = self._analyze_lowered_plan(plan)
         else:
             if simulation.simplify:
@@ -1771,9 +1864,9 @@ class Simulator:
         capabilities = self._engine.capabilities
         if facts.execution_shape not in capabilities.supported_execution_shapes:
             raise BackendValidationError(
-                f"runtime={self._runtime!r} supports ideal single-pass circuits with terminal "
-                "measurement; intermediate measurement, reset, quantum channels, loss, and feedforward "
-                "are unsupported"
+                f"runtime={self._runtime!r} does not support "
+                f"{facts.execution_shape.replace('_', '-')} execution for "
+                f"method={self.method!r}"
             )
         if not capabilities.supports_shot_workers and (
             simulation.shot_parallelism not in ("auto", "serial")
@@ -1821,7 +1914,9 @@ class Simulator:
             # Process dispatch bypasses execute_local; never send device state
             # or an implicitly selected device to the CPU shot worker pool.
             raise BackendValidationError(
-                f"runtime={self._runtime!r} does not support dynamic shots"
+                f"runtime={self._runtime!r} does not support this execution: "
+                f"{context.execution_shape.replace('_', '-')} with "
+                f"{policy.shot_strategy} shot workers"
             )
         local_policy = _materialization_policy(policy)
         payload = self._engine.materialize_execution(
@@ -1831,7 +1926,94 @@ class Simulator:
             deferred_measurements=deferred_measurements,
             policy=local_policy,
         )
+        devices = self._devices()
+        if (
+            len(devices) > 1
+            and context.execution_shape == "per_shot"
+            and context.request.counts
+            # Shot batches return counts only; a requested state stays put.
+            and not getattr(context.request, self._state_field)
+            # Only shots that can all branch apart (see _branch_bound).
+            and 1
+            < context.shots
+            <= _branch_bound(
+                plan,
+                context.system_dims,
+                context.shots,
+                stochastic=self._nonunitary_is_stochastic,
+            )
+            and not policy.use_compiled_multi_shot_kernel
+            # A resident base state lives on the first device only.
+            and (
+                context.initial_state is None
+                or isinstance(context.initial_state, np.ndarray)
+            )
+        ):
+            return self._run_shots_on_devices(devices, context, payload)
         return _dispatch_execution(self._engine, context, payload, policy)
+
+    def _devices(self) -> tuple[int, ...]:
+        """The configured CUDA devices, resolving ``device_id="all"`` once."""
+        if self._all_devices:
+            runtime = self._engine._cp.cuda.runtime
+            try:
+                count = runtime.getDeviceCount()
+            except runtime.CUDARuntimeError as error:  # no driver, or no device
+                raise BackendValidationError(
+                    f"device_id='all' found no CUDA device: {error}"
+                ) from error
+            if count == 0:
+                raise BackendValidationError("device_id='all' found no CUDA device")
+            self._device_ids = tuple(range(count))
+            self._all_devices = False
+            _LOG.debug("device_id='all' resolved to devices %s", self._device_ids)
+        return self._device_ids
+
+    def _device_engine(self, device: int) -> MatrixEngine:
+        """The engine for a further device, built on first use and kept."""
+        if device not in self._device_engines:
+            self._device_engines[device] = self._engine_cls(device_id=device)
+        return self._device_engines[device]
+
+    def _run_shots_on_devices(
+        self,
+        devices: tuple[int, ...],
+        context: _ExecutionContext,
+        payload: Any,
+    ) -> RawResult:
+        """Run one execution's shots on every device: here and in GPU workers.
+
+        A shot draws only from its own seed stream, so shots are independent:
+        split in order into one batch per device, they give the same rows,
+        and so the same counts, as one device running them all. The first
+        device's batch runs on this backend's engine; each further device's
+        runs in its own worker process (see `_run_shots_on_device_workers`).
+        """
+        batches = _split_into_batches(
+            _shot_seed_sequences(context.seed, context.shots), len(devices)
+        )
+        _LOG.debug(
+            "spreading %d shots over CUDA devices %s in batches of %s",
+            context.shots,
+            devices[: len(batches)],
+            [len(batch) for batch in batches],
+        )
+        snapshots = _run_shots_on_device_workers(
+            self._engine_cls,
+            devices,
+            context,
+            payload,
+            batches,
+            # Each batch is one serial loop, as in a GPU worker.
+            lambda seeds: self._engine.execute_shot_batch(
+                context, payload, seeds, _SERIAL_SHOTS
+            ),
+        )
+        rows = np.asarray(snapshots, dtype=int).reshape(
+            (len(snapshots), context.n_clbits)
+        )
+        outcome_keys, outcome_counts = reduce_to_counts(rows)
+        return RawResult(outcome_keys=outcome_keys, outcome_counts=outcome_counts)
 
     def _assemble_result(
         self,

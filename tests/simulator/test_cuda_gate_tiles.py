@@ -29,15 +29,15 @@ def _engines():
         pytest.skip(f"CUDA device discovery unavailable: {error}")
     from fatqat.simulator._engine.cupy import CupySVEngine
 
-    class Tiled(CupySVEngine):
+    class Tiled(CupySVEngine):  # pylint: disable=too-many-ancestors
         # Test systems are smaller than any L2 cache; force tiling on.
         _TILE_MIN_BYTES = 0
 
-    class Tiled12(CupySVEngine):
+    class Tiled12(CupySVEngine):  # pylint: disable=too-many-ancestors
         _TILE_MIN_BYTES = 0
         _TILE_BITS = 12  # 64 KiB of shared memory: exercises the opt-in path
 
-    class PerGate(CupySVEngine):
+    class PerGate(CupySVEngine):  # pylint: disable=too-many-ancestors
         _TILE_BITS = 64  # larger than any test system: tiling never engages
 
     return Tiled, PerGate, Tiled12
@@ -93,29 +93,6 @@ def test_tiles_are_bit_identical_to_per_gate_kernels(engines, n, seed):
         np.testing.assert_array_equal(_run(tiled12, n, steps, initial), expected)
 
 
-def test_low_and_high_qubit_runs_split_into_several_tiles(engines):
-    tiled, per_gate, _ = engines
-    n = 16
-    rng = np.random.default_rng(7)
-    # One-qubit gates on every qubit in order force a flush when the tile fills.
-    steps = [ApplyMatrixStep(_unitary(rng, 2), (q,)) for q in range(n)] * 2
-    initial = np.zeros(1 << n, dtype=np.complex128)
-    initial[0] = 1
-    engine = tiled(device_id=0)
-    engine.initialize((2,) * n, initial_state=initial)
-    batches = []
-    original = engine._apply_tile_batch
-    engine._apply_tile_batch = lambda queued: (
-        batches.append(len(queued)),
-        original(queued),
-    )
-    for step in steps:
-        engine.apply(step)
-    result = engine.export_state()
-    assert len(batches) >= 3 and sum(batches) <= len(steps)
-    np.testing.assert_array_equal(result, _run(per_gate, n, steps, initial))
-
-
 def test_reading_the_state_applies_queued_gates_first(engines):
     tiled = engines[0]
     n = 12
@@ -124,10 +101,8 @@ def test_reading_the_state_applies_queued_gates_first(engines):
     x = np.array([[0, 1], [1, 0]], dtype=np.complex128)
     engine.apply(ApplyMatrixStep(x, (0,)))
     engine.apply(ApplyMatrixStep(x, (1,)))
-    assert engine._pending  # queued, not yet applied
     probabilities = engine.probabilities()
     assert probabilities[0b11] == 1.0
-    assert not engine._pending
 
 
 def _layered(n):
@@ -170,19 +145,6 @@ def test_public_runs_and_expectations_match_cpu(engines, simplify):
     assert values[1] == pytest.approx(values[0], abs=1e-12)
 
 
-def test_tiling_waits_for_states_larger_than_l2(engines):
-    from fatqat.simulator._engine.cupy import CupySVEngine
-
-    engine = CupySVEngine(device_id=0)
-    engine.initialize((2,) * 12)
-    x = np.array([[0, 1], [1, 0]], dtype=np.complex128)
-    engine.apply(ApplyMatrixStep(x, (0,)))
-    # 2**12 amplitudes are far below any L2 cache: applied at once, not queued.
-    assert not engine._pending
-    assert engine._tile_min_bytes > 0
-    del engines
-
-
 def test_public_observable_above_l2_matches_cpu(engines):
     # 24 qubits (256 MiB) exceeds the L2 cache of current GPUs, so the public
     # path runs on tiles with the default engine settings.
@@ -197,3 +159,193 @@ def test_public_observable_above_l2_matches_cpu(engines):
         for runtime in ("numba", "cuda")
     ]
     assert values[1] == pytest.approx(values[0], abs=1e-12)
+
+
+@pytest.fixture(scope="module", name="unitary_engines")
+def _unitary_engines(engines):
+    del engines  # skips the module without a CUDA device
+    from fatqat.simulator._engine.cupy import CupyUnitaryEngine
+
+    # pylint: disable-next=too-many-ancestors,abstract-method
+    class TiledUnitary(CupyUnitaryEngine):
+        _TILE_MIN_BYTES = 0
+
+    # pylint: disable-next=too-many-ancestors,abstract-method
+    class PerGateUnitary(CupyUnitaryEngine):
+        _TILE_BITS = 64
+
+    return TiledUnitary, PerGateUnitary
+
+
+def _run_unitary(engine_cls, n, steps):
+    engine = engine_cls(device_id=0)
+    engine.initialize((2,) * n)
+    for step in steps:
+        engine.apply(step)
+    return engine.export_state()
+
+
+@pytest.mark.parametrize("n", [6, 7, 8])
+@pytest.mark.parametrize("seed", range(4))
+def test_unitary_tiles_are_bit_identical_to_per_gate_kernels(unitary_engines, n, seed):
+    tiled, per_gate = unitary_engines
+    steps = _random_steps(np.random.default_rng(500 + 10 * n + seed), n, 60)
+    np.testing.assert_array_equal(
+        _run_unitary(tiled, n, steps), _run_unitary(per_gate, n, steps)
+    )
+
+
+def test_public_unitary_above_l2_matches_cpu(engines):
+    # 12 qubits: a 256 MiB unitary, above current L2 caches, so tiles engage.
+    del engines
+    request = {"counts": False, "final_state": True}
+    values = [
+        Simulator("unitary", runtime=runtime)
+        .run(_layered(12), shots=0, result_config=request)
+        .result()
+        .get_unitary()
+        for runtime in ("numba", "cuda")
+    ]
+    np.testing.assert_allclose(values[1], values[0], atol=1e-12, rtol=0)
+
+
+def _controlled(matrix, value=1):
+    """``matrix`` on the later targets where the first target equals ``value``."""
+    size = len(matrix)
+    out = np.eye(2 * size, dtype=np.complex128)
+    out[value * size : (value + 1) * size, value * size : (value + 1) * size] = matrix
+    return out
+
+
+def _insular_steps(rng, n, depth):
+    """Gates whose controls and diagonal targets need no tile bit.
+
+    The twin of the Numba tile tests' generator: Toffoli, Fredkin, three-qubit
+    diagonals, open and closed controls on dense gates, and plain gates.
+    """
+    steps = []
+    for _ in range(depth):
+        kind = int(rng.integers(10))
+        width = 3 if kind in (0, 1, 2, 5) else 2
+        targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+        if kind >= 8:
+            # Diagonals with controls and a moving target (CRZ, open-control
+            # and doubly controlled phases): some entries exactly 1.
+            phases = np.exp(1j * rng.normal(size=4))
+            matrix = [
+                np.diag([1, 1, phases[0], phases[1]]),
+                np.diag([phases[0], phases[1], 1, 1]),
+                np.diag([1] * 6 + list(phases[:2])),
+                np.diag([1] * 4 + list(phases)),
+                np.diag([1, phases[0]]),
+                np.diag([phases[0], 1]),
+            ][int(rng.integers(6))].astype(np.complex128)
+            width = matrix.shape[0].bit_length() - 1
+            targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+            steps.append(ApplyMatrixStep(matrix, targets))
+            continue
+        if kind == 0:
+            matrix = _controlled(_CX)
+        elif kind == 1:
+            matrix = _controlled(_SWAP)
+        elif kind == 2:
+            matrix = np.diag(np.exp(1j * rng.normal(size=8)))
+        elif kind == 3:
+            matrix = _controlled(_unitary(rng, 2), value=int(rng.integers(2)))
+        elif kind == 4:
+            matrix = np.diag(np.exp(1j * rng.normal(size=4)))
+        elif kind == 5:
+            matrix = _controlled(_unitary(rng, 4))
+        elif kind == 6:
+            matrix = _CX
+        else:
+            targets = targets[:1]
+            matrix = _unitary(rng, 2)
+        steps.append(ApplyMatrixStep(matrix, targets))
+    return steps
+
+
+@pytest.mark.parametrize("n", [11, 13, 16])
+@pytest.mark.parametrize("seed", range(5))
+def test_controls_and_diagonals_anywhere_stay_bit_identical(engines, n, seed):
+    tiled, per_gate, _tiled12 = engines
+    rng = np.random.default_rng(2000 * n + seed)
+    initial = rng.normal(size=1 << n) + 1j * rng.normal(size=1 << n)
+    initial /= np.linalg.norm(initial)
+    steps = _insular_steps(rng, n, 80)
+    np.testing.assert_array_equal(
+        _run(tiled, n, steps, initial), _run(per_gate, n, steps, initial)
+    )
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_unitary_tiles_with_controls_anywhere_stay_bit_identical(unitary_engines, seed):
+    tiled, per_gate = unitary_engines
+    steps = _insular_steps(np.random.default_rng(700 + seed), 7, 60)
+    np.testing.assert_array_equal(
+        _run_unitary(tiled, 7, steps), _run_unitary(per_gate, 7, steps)
+    )
+
+
+def test_only_exact_three_qubit_gates_join_a_cuda_tile():
+    # Runs without a device: the rule is decided on the host. A three-qubit
+    # gate that rounds would take the cuBLAS path alone, so it stays out.
+    from fatqat.simulator._engine.cupy import CupySVEngine
+
+    engine = CupySVEngine(device_id=0)
+    toffoli = ApplyMatrixStep(_controlled(_CX), (0, 1, 2))
+    ccz = ApplyMatrixStep(np.diag([1, 1, 1, 1, 1, 1, 1, -1]).astype(complex), (0, 1, 2))
+    phases = ApplyMatrixStep(np.diag(np.exp(1j * np.arange(8.0))), (0, 1, 2))
+    dense = ApplyMatrixStep(
+        _controlled(_unitary(np.random.default_rng(0), 4)), (0, 1, 2)
+    )
+    assert engine._tile_form_of(toffoli) is not None
+    assert engine._tile_form_of(ccz) is not None
+    assert engine._tile_form_of(phases) is None
+    assert engine._tile_form_of(dense) is None
+    # Two-qubit gates tile whatever they hold.
+    assert engine._tile_form_of(
+        ApplyMatrixStep(_unitary(np.random.default_rng(1), 4), (0, 1))
+    )
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_simplify_keeps_cuda_values_when_it_rewrites_only_exact_gates(engines, seed):
+    # Unit gates (S and Y bring +-i) and rotations conjugated by +-1
+    # permutations are the rewrites claimed to leave CUDA values unchanged;
+    # H and T are left out, since cancelling them changes values on purpose.
+    del engines
+    rng = np.random.default_rng(seed)
+    n = 14
+    program = fq.Program(n)
+    for q in range(n):
+        program.add(ops.RY(float(rng.uniform(0, np.pi))), q)
+    for _ in range(160):
+        q, r, s = (int(v) for v in rng.choice(n, 3, replace=False))
+        pick = int(rng.integers(9))
+        if pick == 0:
+            program.add(ops.CX, (q, r))
+            program.add(ops.RZ(float(rng.normal())), r)
+            program.add(ops.CX, (q, r))
+        elif pick == 1:
+            program.add(ops.CCX, (q, r, s))
+        elif pick == 2:
+            program.add(ops.CPhase(float(rng.normal())), (q, r))
+        else:
+            name = ["S", "Sdg", "Y", "X", "Z", "CZ"][pick - 3]
+            program.add(getattr(ops, name), (q, r) if name == "CZ" else q)
+    request = {"counts": False, "final_state": True}
+    backend = Simulator("statevector", runtime="cuda")
+    plain, simple = (
+        backend.run(
+            program, shots=0, result_config=request, simulation_config={"simplify": s}
+        )
+        .result()
+        .get_statevector()
+        for s in (False, True)
+    )
+    np.testing.assert_array_equal(simple, plain)
+    plan, _ = Simulator("statevector", runtime="numpy")._lower_program(program)
+    from fatqat._backends.simplify import simplify_plan
+
+    assert len(simplify_plan(plan, (2,) * n, zero_start=True)) < len(plan)

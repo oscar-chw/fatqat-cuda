@@ -186,10 +186,11 @@ class _PermissiveSubclass(Simulator):
         return None
 
 
+# Each of these is rejected before any device work, the first three exactly as
+# on the CPU runtimes. A conditioned gate is no longer among them: CUDA runs it
+# like the CPU runtimes do (test_cuda_trajectories.py).
 @pytest.mark.parametrize("entrypoint", _ENTRYPOINTS)
-@pytest.mark.parametrize(
-    "feature", ["reset", "condition", "measurement", "channel", "workers"]
-)
+@pytest.mark.parametrize("feature", ["reset", "measurement", "channel", "workers"])
 def test_subclass_hook_cannot_bypass_common_cuda_preparation(
     forbid_cupy, entrypoint, feature
 ):

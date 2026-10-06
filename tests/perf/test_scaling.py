@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import pytest
 
-from perf.scaling import WORKLOADS, _fingerprint, cuda_available, sizes_for
+from perf.scaling import WORKLOADS, _fingerprint, _quartiles, cuda_available, sizes_for
 from perf.scrub_check import GENERIC_PATTERNS, scan
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -57,7 +57,10 @@ def test_end_to_end_small_run_is_complete_and_clean(tmp_path):
         assert len(timing["warm_ms"]) == 2
         assert 0 < timing["q1_ms"] <= timing["median_ms"] <= timing["q3_ms"]
         assert timing["first_call_ms"] > 0
-        assert timing["peak_rss_mib"] > 0
+        if sys.platform == "win32":
+            assert timing["peak_rss_mib"] is None  # no resource module
+        else:
+            assert timing["peak_rss_mib"] > 0
         assert timing["gpu_pool_reserved_mib"] is None
     # The output must not carry machine details by construction.
     assert not scan(out.read_text(), GENERIC_PATTERNS)
@@ -134,3 +137,10 @@ def test_cpu_only_run_can_serve_as_a_reference(tmp_path):
     )
     assert second.returncode == 0, second.stderr
     assert json.loads(out2.read_text())["reference_file"] == "scaling.json"
+
+
+def test_quartiles_stay_within_the_samples():
+    # Two very different warm calls: the default method would put Q1 below 0.
+    q1, median, q3 = _quartiles([1.0, 50.0])
+    assert 1.0 <= q1 <= median <= q3 <= 50.0
+    assert _quartiles([7.0]) == [7.0, 7.0, 7.0]

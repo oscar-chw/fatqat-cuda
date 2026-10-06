@@ -1,0 +1,53 @@
+{
+ "description": "Measure the peak host memory of each r10 change, one fresh process per arm.",
+ "measurement_date": "2026-10-06",
+ "code_revision": "c4c3563",
+ "state_mib": 256.0,
+ "unit": "MiB of peak resident memory added while evolving the plan",
+ "rows": [
+  {
+   "workload": "qft",
+   "qubits": 24,
+   "peak_growth_mib": {
+    "per_gate": 287.8,
+    "every_target": 288.1,
+    "insular": 288.4,
+    "simplify": 288.5,
+    "metal": 289.7
+   }
+  },
+  {
+   "workload": "adder",
+   "qubits": 24,
+   "peak_growth_mib": {
+    "per_gate": 287.4,
+    "every_target": 288.2,
+    "insular": 288.7,
+    "simplify": 288.5,
+    "metal": 289.7
+   }
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 24,
+   "peak_growth_mib": {
+    "per_gate": 287.3,
+    "every_target": 288.6,
+    "insular": 289.4,
+    "simplify": 288.4,
+    "metal": 289.7
+   }
+  },
+  {
+   "workload": "clifford_t",
+   "qubits": 24,
+   "peak_growth_mib": {
+    "per_gate": 287.7,
+    "every_target": 288.9,
+    "insular": 289.5,
+    "simplify": 288.6,
+    "metal": 290.2
+   }
+  }
+ ]
+}

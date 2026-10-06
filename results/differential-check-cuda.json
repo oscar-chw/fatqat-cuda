@@ -1,0 +1,73 @@
+{
+ "description": "Randomized differential check of every 'same result' claim, on fresh seeds. (CUDA run; the Apple-GPU row is skipped there)",
+ "measurement_date": "2026-10-07",
+ "code_revision": "4f62e6c",
+ "seed_base": 1000000,
+ "checks": [
+  {
+   "claim": "numba tiles vs per-gate (random + controlled/diagonal gates)",
+   "cases": 3000,
+   "failures": 0
+  },
+  {
+   "claim": "simplify exact-only plans, Numba values unchanged",
+   "cases": 3000,
+   "failures": 0
+  },
+  {
+   "claim": "simplify exact-only plans, CUDA values unchanged",
+   "cases": 3000,
+   "failures": 0
+  },
+  {
+   "claim": "simplify from the zero start (known inputs), values unchanged",
+   "cases": 2000,
+   "failures": 0
+  },
+  {
+   "claim": "simplify from the zero start (known inputs), values unchanged (CUDA)",
+   "cases": 2000,
+   "failures": 0
+  },
+  {
+   "claim": "simplify on Clifford+T (rounding removed), equivalent to 1e-12",
+   "cases": 1200,
+   "failures": 0
+  },
+  {
+   "claim": "Metal prototype vs Numba tiles, bit patterns",
+   "cases": "skipped",
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumpySVEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumpyDMEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumbaSVEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (NumbaDMEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (CupySVEngine)",
+   "cases": 2500,
+   "failures": 0
+  },
+  {
+   "claim": "shot branching vs one shot at a time, every clbit (CupyDMEngine)",
+   "cases": 2500,
+   "failures": 0
+  }
+ ]
+}

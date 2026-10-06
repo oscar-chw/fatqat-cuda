@@ -1,7 +1,7 @@
 # CUDA runtime
 
 `Simulator(runtime="cuda")` runs statevector, density-matrix, unitary and
-superoperator calculations on one NVIDIA GPU. It retains `complex128` values
+superoperator calculations on NVIDIA GPUs, one state per GPU. It retains `complex128` values
 and returns ordinary NumPy arrays and FatQat results. It performs no state
 truncation, reduced-precision calculation, or change to the circuit model.
 Floating-point results can differ from CPU results; bitwise reproducibility
@@ -51,8 +51,8 @@ The method names and aliases are the same as for CPU execution:
 
 | Method | CUDA coverage | Restrictions |
 | --- | --- | --- |
-| `statevector` / `SV` | Ideal single-pass evolution, terminal measurement and seeded counts | Rejects quantum channels, reset, intermediate measurement and feedforward |
-| `density_matrix` / `DM` | Exact finite channels and reset; terminal or intermediate measurement, seeded counts and feedforward | Dynamic circuits execute shots serially |
+| `statevector` / `SV` | Ideal evolution and seeded counts; per-shot trajectories with finite channels, reset, intermediate measurement and feedforward | Each shot of a dynamic circuit draws from its own seed stream, as NumPy does; shots that share a state share the work (shot branching), and several GPUs split the shots |
+| `density_matrix` / `DM` | Exact finite channels and reset; terminal or intermediate measurement, seeded counts and feedforward | Dynamic circuits run per shot, with shot branching |
 | `unitary` | The complete unitary map | Rejects channels, reset, measurement, conditions, counts and `initial_state` |
 | `superop` | The complete channel map, including finite channels and reset | Rejects measurement, conditions, counts and `initial_state` |
 
@@ -86,9 +86,71 @@ through an `ERROR` Job; `job.result()` raises the captured error.
 ## Devices and memory
 
 `device_id` selects an ordinal among the process's visible CUDA devices. A
-backend instance is not safe for concurrent calls. To run independent circuits
-on several GPUs, use one instance in each process, with a distinct device ID or
-`CUDA_VISIBLE_DEVICES` selection. This does not distribute one state across GPUs.
+backend instance is not safe for concurrent calls. To run independent
+circuits on several GPUs, use one instance in each process, each
+with its own device ID or `CUDA_VISIBLE_DEVICES` selection. Nothing distributes
+one state across GPUs.
+
+`device_id` also accepts a tuple of distinct ordinals, or `"all"` for every
+visible GPU (counted when execution first starts). `run_sweep` then runs the
+rows on every listed GPU, one worker thread and engine per GPU, and returns
+results in input order; each row is computed exactly as it would be on one
+GPU. If a row fails, the Job reports the earliest failing row, although rows
+on other GPUs may already have run. A `run` whose shots are independent
+trajectories (channels, reset or mid-circuit measurement) splits its shots, in
+order, into one batch per GPU, when its random steps before the last have at
+least as many outcomes as there are shots (a density matrix applies channels
+and resets exactly, so only its measurements count; with fewer, every GPU would evolve the same
+branches, so the run stays on the first). Every shot draws from its own seed stream, so
+the counts equal a one-GPU run with the same seed. The first GPU's batch runs
+in the calling process and each further GPU's in its own worker process: a
+fresh interpreter started by loky, kept between runs and closed after five
+idle minutes, which returns its free device memory after every batch. Any
+other `run`, and a `run` that requests a final state, uses the first listed
+device. Sweep rows run on threads, one per GPU; their speed-up is less than the
+number of GPUs, because part of each row's work runs in Python one thread at
+a time.
+
+If a GPU's batch fails, the Job is an ERROR whose `result()` raises the first
+GPU's own error if it had one, else the first failing GPU's in device order,
+with a note naming the device. Every batch finishes first, so none outlives
+the run. A worker that dies (a crash, or an out-of-memory kill) fails its run
+with an error saying so, and the next run starts a new one.
+
+Shots of one run that share a state share the work on it (shot branching):
+deterministic steps run once per group of shots, and each branch a random step
+picks is built once, while every shot still makes its own draws, in its own
+order. Counts are bit-identical to running the shots one at a time, on every
+runtime's per-shot loop (Numba's compiled multi-shot loop, which default
+counts-only Numba runs use, is separate and unchanged).
+
+FatQat logs nothing unless the application configures logging. To see which
+devices `"all"` found, how a run's shots were spread, and a summary of each
+shot-branching chunk:
+
+```python
+import logging
+
+logging.basicConfig()
+logging.getLogger("fatqat").setLevel(logging.DEBUG)
+```
+
+```python
+import numpy as np
+import fatqat as fq
+import fatqat.operations as ops
+from fatqat.parameters import Parameter
+from fatqat.simulator import Simulator
+
+theta = Parameter("theta")
+program = fq.Program(2, 2)
+program.add(ops.RY(theta), 0)
+program.add(ops.CX, (0, 1))
+program.measure_all()
+results = Simulator(method="SV", runtime="cuda", device_id=(0, 1)).run_sweep(
+    program, {theta: np.linspace(0, np.pi, 8)}, shots=1000
+).result()  # eight Results, in the order of the theta values
+```
 
 The engine retains its most recent device state. Matrix uploads are
 released after each public execution; CuPy's allocator may retain freed blocks.
@@ -104,8 +166,8 @@ complex128 array requires:
 
 Contractions, channel application, sampling, collapse, host exports and
 retained sweep results require additional memory. A historical statevector
-pilot exported a 32-qubit GHZ state using only in-place one- and two-qubit
-kernels. That capacity check does not establish capacity for the current
+pilot exported a GHZ state of several times the usual test size using only
+in-place one- and two-qubit kernels. That capacity check does not establish capacity for the current
 matrix methods, arbitrary circuits or their temporary buffers.
 
 Small circuits may run faster on the CPU because GPU setup and launch costs

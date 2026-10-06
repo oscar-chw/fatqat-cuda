@@ -209,7 +209,26 @@ def test_paired_comparisons_have_the_right_sign_and_counts():
     assert stats["numpy_minus_numba"]["standard_error_eps"] == pytest.approx(0.0)
 
 
-def test_simplify_arm_stays_within_the_cpu_control(tmp_path):
+def test_simplify_leaves_every_oracle_circuit_unchanged():
+    # The oracle evolves the circuit as written, so the --simplify arm is
+    # valid only if simplify finds nothing to rewrite in these circuits of
+    # Haar-random gates and channels: it guards against simplify touching a
+    # gate that rounds. Simplification itself is measured, against the ideal
+    # circuit, by perf/simplify_check.py.
+    from fatqat._backends.simplify import simplify_plan
+    from fatqat.simulator import Simulator
+    from perf.precision import build_program
+
+    for case in CASES:
+        program, options = build_program(case, build_steps(case, 5280))
+        backend = Simulator(case.method, runtime="numpy", **options)
+        plan, _ = backend._lower_program(program)
+        simplified = simplify_plan(plan, tuple(reversed(case.dims)))
+        assert len(simplified) == len(plan)
+        assert all(a is b for a, b in zip(simplified, plan)), case.name
+
+
+def test_simplify_flag_reaches_every_arm(tmp_path):
     out = tmp_path / "p.json"
     completed = subprocess.run(
         [

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -18,6 +19,208 @@ def _shot_seed_sequences(
 ) -> list[np.random.SeedSequence]:
     """Spawn stable, ordered child streams for sampled shots."""
     return np.random.SeedSequence(seed).spawn(n_iters)
+
+
+# Per-step caches keep each step alive to pin its id; a long-lived engine (a
+# GPU worker, a notebook session) sees new steps on every run, so past this
+# many entries a cache starts over rather than growing without bound.
+_TILE_FORM_CACHE_LIMIT = 4096
+
+
+@dataclass(frozen=True)
+class _TileForm:
+    """How a qubit gate occupies a tile: only its *active* targets need tile bits.
+
+    A *control* (a target the gate never flips, with the identity on its other
+    value) needs no tile bit: whether it holds is read from the amplitude's
+    index, and only amplitudes where every control holds are visited. A
+    diagonal gate needs none either: it multiplies each amplitude by an entry
+    chosen by the amplitude's own index bits, wherever they lie. Positions
+    count from the first target, the most significant local digit.
+
+    ``matrix`` is the gate where every control holds: for a diagonal gate its
+    diagonal over the ``active`` targets (a single phase for ``CZ``, ``T`` or
+    ``CPhase``, whose targets are all controls), otherwise the block acting on
+    the ``active`` targets, at most two.
+    """
+
+    diagonal: bool
+    controls: tuple[tuple[int, int], ...]
+    active: tuple[int, ...]
+    matrix: np.ndarray
+
+
+def _tile_form(matrix: np.ndarray) -> _TileForm | None:
+    """Classify a qubit gate exactly (no tolerance); ``None`` if it cannot tile.
+
+    Applying only the residual block, where the controls hold, does the same
+    arithmetic as the full gate: elsewhere the full gate multiplies by exact
+    ones and adds exact zeros, so the values are equal.
+    """
+    size = matrix.shape[0]
+    width = size.bit_length() - 1
+    diagonal = not np.any(matrix[~np.eye(size, dtype=bool)])
+    index = np.arange(size)
+    bits = [(index >> (width - 1 - p)) & 1 for p in range(width)]
+    controls = []
+    for p in range(width):
+        if np.any(matrix[bits[p][:, None] != bits[p][None, :]]):
+            continue  # the gate flips this target
+        for value in (1, 0):
+            other = np.flatnonzero(bits[p] != value)
+            if np.array_equal(matrix[np.ix_(other, other)], np.eye(len(other))):
+                controls.append((p, value))
+                break
+    # The controls hold together: each is a target the gate never flips, with
+    # the identity on its other value, so outside the block where all of them
+    # hold the gate is the identity and nothing crosses into the block.
+    held = np.ones(size, dtype=bool)
+    for p, value in controls:
+        held &= bits[p] == value
+    inside = np.flatnonzero(held)
+    active = tuple(p for p in range(width) if p not in dict(controls))
+    residual = np.ascontiguousarray(matrix[np.ix_(inside, inside)])
+    if diagonal:
+        return _TileForm(True, tuple(controls), active, np.diag(residual).copy())
+    if len(active) > 2:
+        return None
+    return _TileForm(False, tuple(controls), active, residual)
+
+
+@dataclass(frozen=True)
+class _TileGate:
+    """Where one queued gate sits in a tile, for the tile kernels.
+
+    ``fixed`` holds the tile positions the kernel enumerates around, in
+    ascending order, with the value each is fixed to: a control's value, or 0
+    for an active (or, for a diagonal, an inside) target whose values the
+    kernel then runs over. ``rest_mask``/``rest_value`` are the controls
+    outside the tile, tested once per tile against its base index.
+    ``targets`` are the active targets: tile positions, and for a diagonal
+    ``-1 - bit`` for a target outside the tile (constant over it).
+    """
+
+    fixed: tuple[tuple[int, int], ...]
+    rest_mask: int
+    rest_value: int
+    targets: tuple[int, ...]
+
+
+class _TileQueue:
+    """Queue runs of qubit gates for engines that apply them tile by tile.
+
+    Consecutive gates whose *active* targets (see `_TileForm`) fit in one tile
+    of ``_TILE_BITS`` index bits (always including the ``_COALESCED_BITS``
+    lowest, so each gather reads contiguous memory) are queued and applied
+    together by ``_apply_tile_batch``. Diagonal gates and controls take no
+    tile bit, so a run of controlled phases, ``CX`` ladders or ``T`` gates
+    shares one pass however widely it spreads. ``_state`` is a property:
+    reading it, by any code path, applies the queue first, and assigning it
+    replaces the state and drops the queue, whose gates were meant for the
+    state being replaced.
+
+    Engines provide ``_can_tile(targets)`` and ``_apply_tile_batch(steps)``,
+    and may override ``_tile_layout`` and ``_apply_now``.
+    """
+
+    _TILE_BITS: int
+    _COALESCED_BITS: int
+    # Per step id: (step, form), the step pinned so a recycled id never aliases.
+    _tile_forms: dict[int, tuple] | None = None
+
+    @property
+    def _state(self):
+        if self._pending:
+            self._flush_pending()
+        return self._raw_state
+
+    @_state.setter
+    def _state(self, value):
+        self._pending: list[ApplyMatrixStep] = []
+        self._pending_bits: frozenset[int] = frozenset()
+        self._raw_state = value
+
+    def _tile_layout(self) -> tuple[int, int]:
+        """(bit of target 0, total index bits) in the flat state."""
+        return 0, len(self._dims)
+
+    def _apply_now(self, step: ApplyMatrixStep) -> None:
+        """Apply one step immediately, through the engine's per-gate kernels."""
+        super().apply(step)
+
+    def _tile_form_of(self, step: ApplyMatrixStep) -> _TileForm | None:
+        """`_tile_form` of a step, once per step (pinned, so ids never alias)."""
+        if self._tile_forms is None or len(self._tile_forms) >= _TILE_FORM_CACHE_LIMIT:
+            self._tile_forms = {}
+        cached = self._tile_forms.get(id(step))
+        if cached is None or cached[0] is not step:
+            matrix = np.asarray(step.matrix, dtype=np.complex128)
+            cached = self._tile_forms[id(step)] = (step, _tile_form(matrix))
+        return cached[1]
+
+    def _active_bits(self, step: ApplyMatrixStep) -> frozenset[int]:
+        offset, _total = self._tile_layout()
+        form = self._tile_form_of(step)
+        if form.diagonal:
+            return frozenset()  # read from the index, wherever its bits lie
+        return frozenset(offset + step.target_indices[p] for p in form.active)
+
+    def apply(self, step: ApplyMatrixStep) -> None:
+        if not self._can_tile(step.target_indices) or self._tile_form_of(step) is None:
+            self._flush_pending()
+            self._apply_now(step)
+            return
+        step_bits = self._active_bits(step)
+        bits = self._pending_bits | step_bits
+        if len(bits | frozenset(range(self._COALESCED_BITS))) > self._TILE_BITS:
+            self._flush_pending()
+            bits = step_bits
+        self._pending.append(step)
+        self._pending_bits = bits
+
+    def _flush_pending(self) -> None:
+        pending = self._pending
+        if not pending:
+            return
+        self._pending, self._pending_bits = [], frozenset()
+        if len(pending) == 1:
+            self._apply_now(pending[0])
+        else:
+            self._apply_tile_batch(pending)
+
+    def _tile_bits(self, steps) -> tuple[list[int], list[int]]:
+        """Sorted bits of one batch's tile, and every other index bit."""
+        _offset, total = self._tile_layout()
+        tile = set(range(self._COALESCED_BITS))
+        for step in steps:
+            tile.update(self._active_bits(step))
+        for bit in range(total):
+            if len(tile) == self._TILE_BITS:
+                break
+            tile.add(bit)
+        tile = sorted(tile)
+        return tile, [bit for bit in range(total) if bit not in tile]
+
+    def _tile_gate(self, step, position) -> _TileGate:
+        """A queued step's `_TileGate` in a tile whose bits map by ``position``."""
+        offset, _total = self._tile_layout()
+        form = self._tile_form_of(step)
+        fixed, rest_mask, rest_value, targets = [], 0, 0, []
+        for p, value in form.controls:
+            bit = offset + step.target_indices[p]
+            if bit in position:
+                fixed.append((position[bit], value))
+            else:
+                rest_mask |= 1 << bit
+                rest_value |= value << bit
+        for p in form.active:
+            bit = offset + step.target_indices[p]
+            if bit in position:
+                fixed.append((position[bit], 0))
+                targets.append(position[bit])
+            else:
+                targets.append(-1 - bit)  # only diagonal targets can be outside
+        return _TileGate(tuple(sorted(fixed)), rest_mask, rest_value, tuple(targets))
 
 
 class MatrixEngine(ABC):

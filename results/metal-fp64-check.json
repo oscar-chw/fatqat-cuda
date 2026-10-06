@@ -1,0 +1,14 @@
+{
+  "cases" : 8000000,
+  "code_revision" : "3113fd3",
+  "dense_1q_ms_per_gate_2_26" : 15.567243099212646,
+  "description" : "Software binary64 multiply and add on the Apple GPU against the CPU: random operands of every class plus pairs aimed at the subnormal boundary, the overflow edge, ties after alignment shifts and subnormal cancellation. Non-NaN results are compared bit for bit; NaN results only as NaN.",
+  "examples" : [
+
+  ],
+  "gate_mismatches" : 0,
+  "measurement_date" : "2026-10-06",
+  "mismatches" : 0,
+  "nan_results" : 114912,
+  "nan_results_with_another_payload" : 0
+}

@@ -1,0 +1,659 @@
+{
+ "description": "simplify=True against the ideal circuit (60-digit exact gate definitions) and its wall-time effect, both arms in one process.",
+ "measurement_date": "2026-10-06",
+ "code_revision": "5756b1b",
+ "software": {
+  "python": "3.12.14",
+  "numpy": "2.3.5",
+  "numba": "0.67.0",
+  "mpmath": "1.4.1"
+ },
+ "error_unit": "float64 machine epsilon, max-abs over amplitudes",
+ "accuracy_paired": {
+  "numpy": {
+   "mean_simplify_minus_plain_eps": -2.1355927411650364,
+   "standard_error_eps": 0.3627346846761244,
+   "circuits_simplify_not_worse": 42,
+   "circuits": 48,
+   "mean_plain_eps": 2.919835472325941,
+   "mean_simplify_eps": 0.7842427311609049
+  },
+  "numba": {
+   "mean_simplify_minus_plain_eps": -2.1186948709320377,
+   "standard_error_eps": 0.3608986385985513,
+   "circuits_simplify_not_worse": 42,
+   "circuits": 48,
+   "mean_plain_eps": 2.886549428879557,
+   "mean_simplify_eps": 0.7678545579475196
+  }
+ },
+ "accuracy_rows": [
+  {
+   "family": "redundant_clifford_t",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 6.33083538750503,
+    "numpy_simplify": 1.3890114969046103,
+    "numba_plain": 6.4568587659976435,
+    "numba_simplify": 1.4198634924881568
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 6.783347437418467,
+    "numpy_simplify": 0.8345756122844997,
+    "numba_plain": 6.887544363094117,
+    "numba_simplify": 0.8345756122844997
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 5.465839024355265,
+    "numpy_simplify": 0.6081417603833945,
+    "numba_plain": 5.593116898253165,
+    "numba_simplify": 0.6828754798702413
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 5.177573578661207,
+    "numpy_simplify": 0.41496334216964825,
+    "numba_plain": 4.9528194051973875,
+    "numba_simplify": 0.41496334216964825
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 9.50410571392107,
+    "numpy_simplify": 1.2783503741775257,
+    "numba_plain": 9.740695438910526,
+    "numba_simplify": 1.2783503741775257
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 10.587606967179232,
+    "numpy_simplify": 0.4514866226166261,
+    "numba_plain": 10.25906855611787,
+    "numba_simplify": 0.4514866226166261
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.9246540858911443,
+    "numpy_simplify": 0.5289670767763057,
+    "numba_plain": 4.0516925683360405,
+    "numba_simplify": 0.5289670767763057
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 4.556572168734772,
+    "numpy_simplify": 0.5175489235756365,
+    "numba_plain": 4.556572168734772,
+    "numba_simplify": 0.5175489235756365
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 5.627538144067629,
+    "numpy_simplify": 0.47322837076091306,
+    "numba_plain": 5.627538144067629,
+    "numba_simplify": 0.47322837076091306
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 6.673068227449411,
+    "numpy_simplify": 0.68321675487077,
+    "numba_plain": 6.623327970327879,
+    "numba_simplify": 0.506625963590685
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 8.235512074625515,
+    "numpy_simplify": 0.9273325855124851,
+    "numba_plain": 8.235512074625515,
+    "numba_simplify": 0.9273325855124851
+   }
+  },
+  {
+   "family": "redundant_clifford_t",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 6.392180158933916,
+    "numpy_simplify": 1.2470737666724048,
+    "numba_plain": 6.368701414785516,
+    "numba_simplify": 1.228607185936822
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.6998841981911297,
+    "numpy_simplify": 0.6576741632149355,
+    "numba_plain": 0.6746799496333836,
+    "numba_simplify": 0.6167705530041139
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.4659386330853713,
+    "numpy_simplify": 0.48019567952307446,
+    "numba_plain": 0.4361879564489834,
+    "numba_simplify": 0.48019567952307446
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.953224946273896,
+    "numpy_simplify": 0.5492806695998125,
+    "numba_plain": 0.8648564474230368,
+    "numba_simplify": 0.44741457191196793
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.2242612538010706,
+    "numpy_simplify": 0.8262421034129176,
+    "numba_plain": 1.1265157827054086,
+    "numba_simplify": 0.8262421034129176
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.2291446235075838,
+    "numpy_simplify": 0.8231467730125238,
+    "numba_plain": 1.1079381802695023,
+    "numba_simplify": 0.8231467730125238
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.1450660535087398,
+    "numpy_simplify": 1.0119853188738592,
+    "numba_plain": 1.181582500038859,
+    "numba_simplify": 0.8875357972597628
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.173296527373284,
+    "numpy_simplify": 0.9552800575682139,
+    "numba_plain": 1.2416509123926738,
+    "numba_simplify": 0.8315156998136343
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.2079573107920178,
+    "numpy_simplify": 0.24578897661722393,
+    "numba_plain": 1.2321255089714442,
+    "numba_simplify": 0.1372292727086722
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.9281012209336199,
+    "numpy_simplify": 0.6077370844655241,
+    "numba_plain": 0.7974161100558192,
+    "numba_simplify": 0.5723385610896243
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.2994237510508846,
+    "numpy_simplify": 0.6572006151925069,
+    "numba_plain": 1.335010144079494,
+    "numba_simplify": 0.6572006151925069
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.202208317096417,
+    "numpy_simplify": 0.7255596668131443,
+    "numba_plain": 0.8914355338010841,
+    "numba_simplify": 0.7255596668131443
+   }
+  },
+  {
+   "family": "plain_clifford_t",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.5258069780307826,
+    "numpy_simplify": 0.5302121645362515,
+    "numba_plain": 1.3803291466859728,
+    "numba_simplify": 0.3679933217908285
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.5906609237187515,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.575023082854844,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 5.315072906367325,
+    "numpy_simplify": 1.0,
+    "numba_plain": 4.422951503238533,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "adder",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 3.0,
+    "numpy_simplify": 1.0,
+    "numba_plain": 3.0,
+    "numba_simplify": 1.0
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 0,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.186748351924151,
+    "numpy_simplify": 1.186748351924151,
+    "numba_plain": 1.186748351924151,
+    "numba_simplify": 1.186748351924151
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 1,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.4544380176858769,
+    "numpy_simplify": 0.4544380176858769,
+    "numba_plain": 0.4544380176858769,
+    "numba_simplify": 0.4544380176858769
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 2,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.5768459840627014,
+    "numpy_simplify": 0.5768459840627014,
+    "numba_plain": 0.5768459840627014,
+    "numba_simplify": 0.5768459840627014
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 3,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.5748511347438464,
+    "numpy_simplify": 0.49839039947712216,
+    "numba_plain": 0.5748511347438464,
+    "numba_simplify": 0.49839039947712216
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 4,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.6279705391688405,
+    "numpy_simplify": 0.6755864320204445,
+    "numba_plain": 0.6279705391688405,
+    "numba_simplify": 0.6755864320204445
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 5,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.39731926761387,
+    "numpy_simplify": 1.457892932425106,
+    "numba_plain": 1.39731926761387,
+    "numba_simplify": 1.457892932425106
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 6,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.4589712294645749,
+    "numpy_simplify": 0.4049524077930456,
+    "numba_plain": 0.4589712294645749,
+    "numba_simplify": 0.4049524077930456
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 7,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.5471381737113867,
+    "numpy_simplify": 0.5222511566621175,
+    "numba_plain": 0.5471381737113867,
+    "numba_simplify": 0.5222511566621175
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 8,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.6317370073217182,
+    "numpy_simplify": 0.6690796239283251,
+    "numba_plain": 0.6317370073217182,
+    "numba_simplify": 0.6690796239283251
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 9,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.5277105844445583,
+    "numpy_simplify": 0.5422782286459514,
+    "numba_plain": 0.5277105844445583,
+    "numba_simplify": 0.5422782286459514
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 10,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 0.4482124009337367,
+    "numpy_simplify": 0.45572558049845313,
+    "numba_plain": 0.4482124009337367,
+    "numba_simplify": 0.45572558049845313
+   }
+  },
+  {
+   "family": "qaoa",
+   "seed": 11,
+   "qubits": 6,
+   "errors": {
+    "numpy_plain": 1.5012793680963785,
+    "numpy_simplify": 0.7752620210653297,
+    "numba_plain": 1.5012793680963785,
+    "numba_simplify": 0.7752620210653297
+   }
+  }
+ ],
+ "timing": [
+  {
+   "workload": "adder",
+   "qubits": 20,
+   "runtime": "numpy",
+   "steps_plain": 317,
+   "steps_simplify": 105,
+   "median_plain_s": 1.422014582902193,
+   "median_simplify_s": 0.46892558317631483,
+   "speedup": 3.032495205891804,
+   "pass_s": 0.006035208236426115,
+   "pass_fraction_of_plain": 0.00424412541825615
+  },
+  {
+   "workload": "adder",
+   "qubits": 20,
+   "runtime": "numba",
+   "steps_plain": 317,
+   "steps_simplify": 105,
+   "median_plain_s": 0.14202008303254843,
+   "median_simplify_s": 0.07080554217100143,
+   "speedup": 2.005776365493506,
+   "pass_s": 0.006035208236426115,
+   "pass_fraction_of_plain": 0.04249545632953161
+  },
+  {
+   "workload": "redundant_clifford_t",
+   "qubits": 20,
+   "runtime": "numpy",
+   "steps_plain": 1200,
+   "steps_simplify": 270,
+   "median_plain_s": 5.854842208325863,
+   "median_simplify_s": 1.3525675409473479,
+   "speedup": 4.328687500681179,
+   "pass_s": 0.09019004227593541,
+   "pass_fraction_of_plain": 0.015404350632657682
+  },
+  {
+   "workload": "redundant_clifford_t",
+   "qubits": 20,
+   "runtime": "numba",
+   "steps_plain": 1200,
+   "steps_simplify": 270,
+   "median_plain_s": 0.6028549172915518,
+   "median_simplify_s": 0.23253799974918365,
+   "speedup": 2.592500657706669,
+   "pass_s": 0.09019004227593541,
+   "pass_fraction_of_plain": 0.1496048878246403
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 20,
+   "runtime": "numpy",
+   "steps_plain": 240,
+   "steps_simplify": 119,
+   "median_plain_s": 1.0518911662511528,
+   "median_simplify_s": 0.5190652082674205,
+   "speedup": 2.026510637771781,
+   "pass_s": 0.002820958849042654,
+   "pass_fraction_of_plain": 0.002681797261494554
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 20,
+   "runtime": "numba",
+   "steps_plain": 240,
+   "steps_simplify": 119,
+   "median_plain_s": 0.12123508425429463,
+   "median_simplify_s": 0.06662141717970371,
+   "speedup": 1.8197614128693294,
+   "pass_s": 0.002820958849042654,
+   "pass_fraction_of_plain": 0.02326850240088586
+  },
+  {
+   "workload": "rotated_qft_control",
+   "qubits": 20,
+   "runtime": "numpy",
+   "steps_plain": 230,
+   "steps_simplify": 230,
+   "median_plain_s": 0.9483965407125652,
+   "median_simplify_s": 0.9547387496568263,
+   "speedup": 0.9933571262855512,
+   "pass_s": 0.003228415735065937,
+   "pass_fraction_of_plain": 0.0034040779320433936
+  },
+  {
+   "workload": "rotated_qft_control",
+   "qubits": 20,
+   "runtime": "numba",
+   "steps_plain": 230,
+   "steps_simplify": 230,
+   "median_plain_s": 0.09259720798581839,
+   "median_simplify_s": 0.09673641715198755,
+   "speedup": 0.9572114691857375,
+   "pass_s": 0.003228415735065937,
+   "pass_fraction_of_plain": 0.03486515204173738
+  }
+ ],
+ "failures": []
+}

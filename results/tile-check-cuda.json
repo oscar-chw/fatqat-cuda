@@ -1,0 +1,85 @@
+{
+ "description": "Tiles where controls and diagonal gates take no tile bit, against tiles where every target does and against per-gate passes; same engine, arms alternating in one process.",
+ "measurement_date": "2026-10-06",
+ "code_revision": "0bd7467",
+ "software": {
+  "python": "3.12.3",
+  "numpy": "2.3.5"
+ },
+ "rows": [
+  {
+   "workload": "qft",
+   "runtime": "cuda",
+   "qubits": 26,
+   "steps": 377,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 47,
+    "insular": 7
+   },
+   "median_s": {
+    "per_gate": 0.556115822866559,
+    "every_target": 0.3378066560253501,
+    "insular": 0.13623560615815222
+   },
+   "insular_over_every_target": 2.4795768562382987,
+   "insular_over_per_gate": 4.082015256870361
+  },
+  {
+   "workload": "adder",
+   "runtime": "cuda",
+   "qubits": 26,
+   "steps": 433,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 13,
+    "insular": 11
+   },
+   "median_s": {
+    "per_gate": 0.5009185869712383,
+    "every_target": 0.26966034108772874,
+    "insular": 0.22336973901838064
+   },
+   "insular_over_every_target": 1.2072375706430805,
+   "insular_over_per_gate": 2.242553486307376
+  },
+  {
+   "workload": "qaoa",
+   "runtime": "cuda",
+   "qubits": 26,
+   "steps": 390,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 32,
+    "insular": 24
+   },
+   "median_s": {
+    "per_gate": 0.44721615477465093,
+    "every_target": 0.2778569208458066,
+    "insular": 0.26104645407758653
+   },
+   "insular_over_every_target": 1.064396457050605,
+   "insular_over_per_gate": 1.7131669394050923
+  },
+  {
+   "workload": "clifford_t",
+   "runtime": "cuda",
+   "qubits": 26,
+   "steps": 600,
+   "identical": true,
+   "tile_passes": {
+    "every_target": 92,
+    "insular": 41
+   },
+   "median_s": {
+    "per_gate": 0.7458968937862664,
+    "every_target": 0.46396384900435805,
+    "insular": 0.3412227830849588
+   },
+   "insular_over_every_target": 1.359709468429131,
+   "insular_over_per_gate": 2.185952787333519
+  }
+ ],
+ "failures": [],
+ "note": "CUDA rows at 26 qubits on one GPU. The verdict uses perf/tile_check.py's gate as of b8834a3 (the QFT gated; the adder reported, since its passes fall only 13 -> 11)."
+}

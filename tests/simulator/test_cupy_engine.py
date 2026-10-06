@@ -13,10 +13,11 @@ import pytest
 
 import fatqat as fq
 import fatqat.operations as ops
-from fatqat._backends.steps import ApplyChannelStep, ApplyMatrixStep
+from fatqat._backends.steps import ApplyMatrixStep
 from fatqat.errors import (
     BackendValidationError,
     ResultFieldUnavailableError,
+    UnsupportedOperationError,
 )
 from fatqat.implementation import MatrixImplementationMap
 from fatqat.implementation.matrices import shift_matrix
@@ -417,9 +418,25 @@ def test_cpu_execution_controls_rejected_before_device_use(no_cupy_import, confi
         _cuda_simulator().run(_ghz(2, measure=True), simulation_config=config)
 
 
+def _request_outcome(request, runtime):
+    """``"job"`` if host validation accepts the request, else the error type.
+
+    Under ``no_cupy_import`` an accepted CUDA request returns a Job that
+    failed on the guarded import, which shows validation let it through.
+    """
+    try:
+        job = request(Simulator(method="SV", runtime=runtime))
+    except (BackendValidationError, UnsupportedOperationError) as error:
+        return type(error)
+    assert isinstance(job, Job)
+    return "job"
+
+
 @pytest.mark.parametrize("feature", ["reset", "mid_measurement", "condition"])
 @pytest.mark.parametrize("sweep", [False, True])
-def test_dynamic_programs_rejected_before_device_use(no_cupy_import, feature, sweep):
+def test_dynamic_programs_are_validated_as_on_numpy(no_cupy_import, feature, sweep):
+    # CUDA statevectors run per-shot trajectories, so a dynamic program is
+    # accepted or rejected by the same host checks as on the CPU runtimes.
     theta = fq.Parameter("theta")
     program = fq.Program(2, 2)
     program.add(ops.RY(theta if sweep else 0.3), 0)
@@ -431,12 +448,14 @@ def test_dynamic_programs_rejected_before_device_use(no_cupy_import, feature, sw
     else:
         program.add(ops.X, 1, condition=(0, 1))
     program.measure_all()
-    backend = _cuda_simulator()
-    with pytest.raises(BackendValidationError):
+
+    def request(backend):
         if sweep:
-            backend.run_sweep(program, {theta: [0.1, 0.7]})
-        else:
-            backend.run(program)
+            return backend.run_sweep(program, {theta: [0.1, 0.7]})
+        return backend.run(program)
+
+    assert _request_outcome(request, "cuda") == "job"
+    assert _request_outcome(request, "numpy") == "job"
 
 
 def test_invalid_state_shape_rejected_before_device_use(no_cupy_import):
@@ -451,21 +470,6 @@ def test_stochastic_final_state_requires_one_shot(no_cupy_import):
             shots=2,
             result_config={"counts": True, "final_state": True},
         )
-
-
-@pytest.mark.parametrize("feature", ["channel", "reset"])
-def test_unsupported_engine_operations_reject_before_allocation(
-    no_cupy_import, feature
-):
-    from fatqat.simulator._engine.cupy import CupySVEngine
-
-    engine = CupySVEngine(device_id=0)
-    rng = np.random.default_rng(0)
-    with pytest.raises(BackendValidationError):
-        if feature == "channel":
-            engine.apply_channel(ApplyChannelStep((_X,), (0,)), rng)
-        else:
-            engine.reset_subsystems((0,), rng)
 
 
 @pytest.mark.parametrize("sweep", [False, True])
@@ -508,7 +512,7 @@ def test_expectation_controls_reject_directly_without_device_use(
 @pytest.mark.parametrize("sweep", [False, True])
 @pytest.mark.parametrize("shots", [0, 64], ids=["exact", "sampled"])
 @pytest.mark.parametrize("feature", ["reset", "condition", "measurement"])
-def test_expectation_dynamic_programs_reject_directly_without_device_use(
+def test_expectation_dynamic_programs_are_validated_as_on_numpy(
     no_cupy_import, sweep, shots, feature
 ):
     angle = fq.Parameter("angle")
@@ -521,15 +525,19 @@ def test_expectation_dynamic_programs_reject_directly_without_device_use(
     else:
         program.measure(0, 0)
         program.add(ops.H, 0)
-    estimator = fq.Estimator(_cuda_simulator())
     observable = fq.Observable([("Z", 1.0)])
-    # CUDA restrictions are checked during common preparation, before the
-    # estimator's generic statevector capability hooks.
-    with pytest.raises(BackendValidationError):
+
+    def request(backend):
+        estimator = fq.Estimator(backend)
         if sweep:
-            estimator.run_sweep(program, observable, {angle: [0.2, 0.7]}, shots=shots)
-        else:
-            estimator.run(program, observable, shots=shots)
+            return estimator.run_sweep(
+                program, observable, {angle: [0.2, 0.7]}, shots=shots
+            )
+        return estimator.run(program, observable, shots=shots)
+
+    # Each request is rejected directly, with the same error, exactly when
+    # the CPU runtime rejects it; the rest reach the device.
+    assert _request_outcome(request, "cuda") == _request_outcome(request, "numpy")
 
 
 @pytest.mark.parametrize("sweep", [False, True])

@@ -1,6 +1,6 @@
 # Upstream FatQat README
 
-> This is the README of [FatQat](https://github.com/spaceqat/fatqat), written by the FatQat authors and licensed
+> This is the README of [FatQat](https://github.com/spaceqat/fatqat), written by the FatQat contributors and licensed
 > under the Apache License, Version 2.0 ([LICENSE](../LICENSE), [NOTICE](../NOTICE)). It is kept verbatim as it
 > stood in this fork's README: the fork changed only its heading and the paragraph on installing CUDA. Moving it
 > into docs/ changed one relative link (the CUDA runtime guide). The fork itself is described in the
