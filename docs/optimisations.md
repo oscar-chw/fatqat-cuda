@@ -129,7 +129,9 @@ when execution first starts.
 
 A `run()` of independent shots (statevector trajectories, or a density matrix
 with mid-circuit measurement) splits its shots, in order, into one batch per
-GPU, when its random steps have at least as many outcomes as there are shots.
+GPU, when its random steps before the last (which builds no state) have at
+least as many outcomes as there are shots; a density matrix applies channels
+and resets exactly, so only its measurements count.
 With fewer, every batch would meet the same branches and evolve them again (an
 ideal circuit with three mid-circuit measurements, 8 branches for 256 shots,
 ran at 0.90x on two GPUs), so such a run stays on one GPU. Each shot draws only from its own seed stream, so the counts are those

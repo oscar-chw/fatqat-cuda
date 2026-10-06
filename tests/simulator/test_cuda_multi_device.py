@@ -347,8 +347,17 @@ def _fake_devices(count, noise, method="statevector"):
     return backend
 
 
-@pytest.mark.parametrize("method", ["statevector", "density_matrix"])
-@pytest.mark.parametrize("shots", [2, 7, 100])
+# A density matrix applies channels and resets exactly: only the mid-circuit
+# measurement branches it (2 branches), so only 2 shots can spread.
+@pytest.mark.parametrize(
+    "method, shots",
+    [
+        ("statevector", 2),
+        ("statevector", 7),
+        ("statevector", 100),
+        ("density_matrix", 2),
+    ],
+)
 def test_shots_spread_over_devices_give_one_device_counts(device_log, method, shots):
     program, theta, noise = _trajectory_program()
     program = program.assign_parameters({theta: 0.7})
@@ -734,6 +743,22 @@ def test_the_branch_bound_counts_each_random_step_but_the_last():
         MeasurementStep((0,), (0,)),  # last: builds no state
     )
     dims = (2, 2, 2, 3)
-    assert _branch_bound(plan, dims, 10**6) == 4 * 4 * 4 * 3
-    assert _branch_bound(plan, dims, 50) == 50
-    assert _branch_bound(plan[-1:], dims, 50) == 1
+    assert _branch_bound(plan, dims, 10**6, stochastic=True) == 4 * 4 * 4 * 3
+    assert _branch_bound(plan, dims, 50, stochastic=True) == 50
+    assert _branch_bound(plan[-1:], dims, 50, stochastic=True) == 1
+    # A density matrix: the channel and the reset do not branch it.
+    assert _branch_bound(plan, dims, 10**6, stochastic=False) == 4 * 4
+
+
+def test_a_density_matrix_with_fewer_measured_branches_than_shots_stays_put(
+    device_log,
+):
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    options = {"shots": 7, "simulation_config": {"seed": 29}}
+    expected = Simulator("density_matrix", runtime="numpy", noise=noise).run(
+        program, **options
+    )
+    got = _fake_devices(3, noise, "density_matrix").run(program, **options)
+    assert got.result().get_counts() == expected.result().get_counts()
+    assert {device for _, device, _ in _logged(device_log)} <= {0}

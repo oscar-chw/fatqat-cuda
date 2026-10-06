@@ -119,11 +119,13 @@ from .._backends.steps import (
 _LOG = logging.getLogger(__name__)
 
 
-def _branch_bound(plan, system_dims, cap: int) -> int:
+def _branch_bound(plan, system_dims, cap: int, *, stochastic: bool) -> int:
     """An upper bound on the groups shot branching splits a run into, up to ``cap``.
 
-    Each random step multiplies it by its number of outcomes; the last step
-    builds no state, so it splits nothing. Shots are spread over devices in
+    Each random step before the last multiplies it by its number of outcomes;
+    the last builds no state, so it splits nothing. Channels and resets are
+    random only for a ``stochastic`` method (statevectors): a density matrix
+    applies them exactly, and only its measurements branch. Shots are spread over devices in
     order, so when there are fewer branches than shots each device's batch
     meets the same branches and evolves them again: an ideal circuit with
     three mid-circuit measurements (8 branches, 256 shots) ran at 0.90x on
@@ -131,13 +133,13 @@ def _branch_bound(plan, system_dims, cap: int) -> int:
     """
     bound = 1
     for step in plan[:-1]:
-        if isinstance(step, ApplyChannelStep):
+        if isinstance(step, ApplyChannelStep) and stochastic:
             bound *= len(step.kraus_ops)
         elif isinstance(step, MeasurementStep):
             outcomes = prod(system_dims[q] for q in step.measured_indices)
             # Readout confusion splits the reported bits of one outcome.
             bound *= outcomes * outcomes if step.confusions else outcomes
-        elif isinstance(step, ResetStep):
+        elif isinstance(step, ResetStep) and stochastic:
             bound *= prod(system_dims[q] for q in step.reset_indices)
         elif isinstance(step, LossStep):
             bound *= 2 ** len(step.target_indices)
@@ -393,8 +395,9 @@ class Simulator:
                 over a worker process per further device, so counts equal a
                 one-device run with the same seed on GPUs of the same model.
                 Shots are spread only when they can all branch apart (the
-                run's random steps have at least as many outcomes as there
-                are shots); otherwise every device would evolve the same
+                run's random steps before its last, which for a density
+                matrix are its measurements alone, have at least as many
+                outcomes as there are shots); otherwise every device would evolve the same
                 branches, so the run stays on the first device, as does
                 anything else. CPU runtimes require
                 ``None``. CuPy and device
@@ -1933,7 +1936,12 @@ class Simulator:
             # Only shots that can all branch apart (see _branch_bound).
             and 1
             < context.shots
-            <= _branch_bound(plan, context.system_dims, context.shots)
+            <= _branch_bound(
+                plan,
+                context.system_dims,
+                context.shots,
+                stochastic=self._nonunitary_is_stochastic,
+            )
             and not policy.use_compiled_multi_shot_kernel
             # A resident base state lives on the first device only.
             and (

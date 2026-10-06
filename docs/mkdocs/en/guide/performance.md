@@ -131,7 +131,8 @@ Use `Simulator("SV", runtime="cuda", device_id=0)` on an NVIDIA host, selecting
 another method when needed. Statevectors and density matrices support
 channels, reset and dynamic measurements, run per shot with shot branching;
 `device_id="all"` spreads a run's shots over every visible GPU when they can
-branch apart (at least as many outcomes as shots). Operator methods retain their usual restrictions. CUDA does not
+branch apart (at least as many outcomes of the random steps before the last
+as shots; for a density matrix, of its measurements). Operator methods retain their usual restrictions. CUDA does not
 accelerate atom occupancy or pulse emulation.
 
 Compare the same requested output and include host transfers in timing.
