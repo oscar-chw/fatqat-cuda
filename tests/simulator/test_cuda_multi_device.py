@@ -92,6 +92,24 @@ def test_all_devices_with_none_visible_fail_the_job(count):
         assert isinstance(caught.value.__cause__, _FakeCudaRuntimeError)
 
 
+@pytest.mark.parametrize("count", [0, None], ids=["zero", "raises"])
+def test_all_devices_with_none_visible_fail_the_sweep_job(count):
+    backend = Simulator("statevector", runtime="cuda", device_id="all")
+    backend._engine.__dict__["_cp"] = _fake_cupy(count)
+    theta = Parameter("theta")
+    program = fq.Program(1)
+    program.add(ops.RY(theta), 0)
+    job = backend.run_sweep(
+        program,
+        {theta: [0.1, 0.2]},
+        shots=0,
+        result_config={"counts": False, "final_state": True},
+    )
+    assert job.status == "ERROR"
+    with pytest.raises(BackendValidationError, match="no CUDA device"):
+        job.result()
+
+
 def _device_count():
     cupy = pytest.importorskip("cupy")
     try:
@@ -579,3 +597,65 @@ def test_threads_starting_runs_at_once_share_one_worker_per_device(monkeypatch):
     finally:
         for executor in {id(e): e for e in got}.values():
             executor.shutdown(wait=True)
+
+
+class _DeadExecutor:
+    """An executor whose worker has died: every submit raises, as loky's does."""
+
+    submitted = 0
+
+    def submit(self, *args, **kwargs):
+        type(self).submitted += 1
+        from concurrent.futures.process import BrokenProcessPool
+
+        raise BrokenProcessPool("worker gone")
+
+
+def test_a_worker_that_died_between_runs_is_replaced_before_submitting(
+    device_log, caplog
+):
+    import logging
+
+    from fatqat.simulator._engine import parallel
+
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    options = {"shots": 30, "simulation_config": {"seed": 47}}
+    expected = (
+        Simulator("statevector", runtime="numpy", noise=noise)
+        .run(program, **options)
+        .result()
+        .get_counts()
+    )
+    dead = _DeadExecutor()
+    parallel._DEVICE_EXECUTORS[1] = dead
+    with caplog.at_level(logging.INFO, logger="fatqat"):
+        got = _fake_devices(2, noise).run(program, **options).result().get_counts()
+    assert got == expected
+    assert _DeadExecutor.submitted >= 1
+    assert parallel._DEVICE_EXECUTORS[1] is not dead
+    assert "the GPU worker for device 1 had exited; starting another" in caplog.messages
+
+
+def test_a_worker_that_cannot_start_fails_the_run(device_log, monkeypatch):
+    from fatqat.simulator._engine import parallel
+
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    monkeypatch.setattr(parallel, "_device_executor", lambda device: _DeadExecutor())
+    job = _fake_devices(2, noise).run(program, shots=30, simulation_config={"seed": 3})
+    with pytest.raises(
+        BackendExecutionError, match="could not start a GPU worker for CUDA device 1"
+    ) as caught:
+        job.result()
+    assert caught.value.__cause__ is not None
+
+
+def test_a_failing_gpu_worker_names_its_device(device_log, monkeypatch):
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    monkeypatch.setenv("FATQAT_FAKE_LOST_DEVICE", "2")
+    job = _fake_devices(3, noise).run(program, shots=30, simulation_config={"seed": 5})
+    with pytest.raises(RuntimeError, match="device 2 lost") as caught:
+        job.result()
+    assert "in the GPU worker for CUDA device 2" in caught.value.__notes__

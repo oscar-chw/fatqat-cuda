@@ -794,3 +794,87 @@ def test_deep_clifford_t_runs_simplify_exactly():
         for s in (False, True)
     )
     np.testing.assert_allclose(simple, plain, rtol=0, atol=1e-12)
+
+
+def test_blocks_that_keep_their_parts_emit_them_in_order(monkeypatch):
+    # A merged block whose product would round more emits its original gates
+    # instead; emitted in the wrong order, a circuit comes out wrong (0.65 in
+    # an amplitude on one such case). Random Clifford+T with Toffolis reach
+    # that path often; each must match its plain run.
+    from fatqat._backends import simplify as module
+
+    kept_parts = []
+    shipped = module._Merger._emit
+
+    def emit(self):
+        stack = [e for e in self.out if isinstance(e, module._Block)]
+        while stack:  # every block, nested ones included, as _emit visits them
+            block = stack.pop()
+            if block.children:
+                kept_parts.append(not block.use_product)
+                stack.extend(block.children)
+        return shipped(self)
+
+    monkeypatch.setattr(module._Merger, "_emit", emit)
+    names = [
+        ops.H,
+        ops.T,
+        ops.Tdg,
+        ops.SX,
+        ops.S,
+        ops.X,
+        ops.CX,
+        ops.CZ,
+        ops.Swap,
+        ops.CCX,
+    ]
+    widths = {ops.CX: 2, ops.CZ: 2, ops.Swap: 2, ops.CCX: 3}
+    request = {"counts": False, "final_state": True}
+    for seed in range(400):
+        rng = np.random.default_rng(seed)
+        n = int(rng.integers(2, 5))
+        program = fq.Program(n)
+        for _ in range(int(rng.integers(2, 14))):
+            gate = names[int(rng.integers(len(names)))]
+            width = widths.get(gate, 1)
+            if width > n:
+                continue
+            targets = tuple(int(q) for q in rng.choice(n, width, replace=False))
+            program.add(gate, targets if width > 1 else targets[0])
+        plain, simple = (
+            Simulator("statevector", runtime="numba")
+            .run(
+                program,
+                shots=0,
+                result_config=request,
+                simulation_config={"simplify": s},
+            )
+            .result()
+            .get_statevector()
+            for s in (False, True)
+        )
+        np.testing.assert_allclose(
+            simple, plain, rtol=0, atol=1e-12, err_msg=f"seed {seed}"
+        )
+    assert sum(kept_parts) >= 10, "the kept-parts path was hardly reached"
+
+
+def test_rounding_cost_is_the_densest_row():
+    # The rounding cost of a gate is the largest number of products summed
+    # into one amplitude: a controlled H rounds like H (2), not like the
+    # identity rows it also has (1); unit gates cost nothing.
+    from fatqat._backends.simplify import _from_unit, _rounding, _TABLE
+    from fatqat._backends.steps import BuiltinKernelKey
+
+    h, h_k = _TABLE[BuiltinKernelKey.H]
+    controlled_h = np.zeros((4, 4, 4), dtype=np.int64)
+    controlled_h[0, 0, 0] = controlled_h[1, 1, 0] = 1  # sqrt(2) * identity rows
+    controlled_h[0, 0, :] = 0
+    controlled_h[0, 0, 1], controlled_h[0, 0, 3] = 1, -1  # w - w**3 = sqrt(2)
+    controlled_h[1, 1, :] = controlled_h[0, 0, :]
+    controlled_h[2:, 2:, :] = h
+    assert _rounding(h, h_k) == 2
+    assert _rounding(controlled_h, 1) == 2
+    assert _rounding(_from_unit(np.eye(4, dtype=np.complex128)[[1, 0, 2, 3]]), 0) == 0
+    t, t_k = _TABLE[BuiltinKernelKey.T]
+    assert _rounding(t, t_k) == 1

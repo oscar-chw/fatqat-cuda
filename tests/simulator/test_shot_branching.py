@@ -448,3 +448,40 @@ def test_unconditioned_steps_skip_the_per_shot_scan(monkeypatch):
         program, shots=200, simulation_config={"seed": 1, **_SERIAL}
     ).result()
     assert not [c for c in scanned if c is None]
+
+
+@pytest.mark.parametrize(
+    "last", ["conditioned_reset", "conditioned_noisy_gate", "channel"]
+)
+def test_a_random_last_step_records_every_shot(monkeypatch, last):
+    # At the last step no state is built; shots a condition parks must still
+    # be recorded beside the ones the step drew for. Readout confusion keeps
+    # shots whose condition bit differs in one group, so the step splits it.
+    noise = NoiseModel()
+    noise.add(Depolarizing(p=0.3), operation=ops.X)
+    noise.add(AmplitudeDamping(p=0.4), operation=ops.H)
+    noise.add(ReadoutConfusion(np.array([[0.7, 0.3], [0.3, 0.7]])), targets=0)
+    program = fq.Program(2, 2)
+    program.add(ops.H, 0)
+    program.measure(0, 0)
+    program.add(ops.H, 1)
+    program.measure(1, 1)
+    if last == "conditioned_reset":
+        program.add(ops.Reset, 1, condition=(0, 1))
+    elif last == "conditioned_noisy_gate":
+        program.add(ops.X, 1, condition=(0, 1))
+    else:
+        program.add(ops.H, 1)
+    backend = Simulator("statevector", runtime="numpy", noise=noise)
+
+    def run():
+        return (
+            backend.run(program, shots=200, simulation_config={"seed": 9, **_SERIAL})
+            .result()
+            .get_counts()
+        )
+
+    got, expected = _both(monkeypatch, run)
+    assert got == expected
+    assert sum(got.values()) == 200
+    assert len(got) == 4

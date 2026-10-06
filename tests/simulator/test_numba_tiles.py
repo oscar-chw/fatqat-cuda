@@ -1,7 +1,8 @@
-"""Numba cache tiles must reproduce the per-gate coset kernels bit for bit.
+"""Numba cache tiles must reproduce the per-gate coset kernels.
 
-Tiles reuse the coset kernels' per-amplitude arithmetic, so the comparison is
-exact array equality. Small tiles on small systems exercise many tiles, both
+Tiles reuse the coset kernels' per-amplitude arithmetic, so comparisons with
+the per-gate kernels are exact array equality; the one comparison with NumPy
+allows rounding. Small tiles on small systems exercise many tiles, both
 target orders, targets inside and outside the coalesced low qubits, and every
 structure (diagonal, permutation, dense).
 """
