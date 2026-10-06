@@ -3,8 +3,9 @@
 Thousands of random circuits, with seeds far from the test suite's, compare:
 tiles against per-gate kernels (Numba), exact simplifications against the
 plain plan (values unchanged, Numba), simplification from the all-zero start,
-Clifford+T simplification (equivalent to 1e-12), the value checks again on
-CUDA where a GPU is present, where the prototype is
+Clifford+T simplification (equivalent to 1e-12), simplify="auto" against
+simplify=False through the public API (counts and states, bit for bit), the
+value checks again on CUDA where a GPU is present, where the prototype is
 built, the Apple-GPU engine against Numba's tiles (bit patterns), and shot
 branching against the one-shot-at-a-time loop (every shot's classical bits, on
 every engine available). It reuses the generators of the tile and simplify
@@ -181,6 +182,99 @@ results["simplify on Clifford+T (rounding removed), equivalent to 1e-12"] = (
     time.time() - start,
 )
 print(results, flush=True)
+
+
+# 4b. simplify="auto" (the default) == simplify=False, every count and state
+# bit for bit, through the public API: noisy programs with mid-circuit
+# measurement, reset and feedforward, statevector and density matrix, with
+# the size threshold set to 0 so the pass always runs.
+def _auto_program(rng):
+    # pylint: disable=import-outside-toplevel
+    import fatqat as fq
+    import fatqat.operations as ops
+    from fatqat.noise import AmplitudeDamping, Depolarizing, NoiseModel
+
+    n = int(rng.integers(2, 6))
+    # A third are ideal and static but for the measurements at the end, so
+    # whether a measurement is deferrable decides the run's path.
+    static = rng.random() < 1 / 3
+    noise = NoiseModel()
+    if not static:
+        noise.add(Depolarizing(p=float(rng.uniform(0, 0.2))), operation=ops.H)
+        noise.add(AmplitudeDamping(p=float(rng.uniform(0, 0.3))), operation=ops.RY)
+    program = fq.Program(n, n)
+    gates = [ops.H, ops.X, ops.S, ops.Sdg, ops.T, ops.Tdg, ops.Z, ops.SX]
+    for _ in range(int(rng.integers(10, 40))):
+        kind = int(rng.integers(0, 5 if static else 8))
+        q = int(rng.integers(n))
+        if kind <= 2:
+            program.add(gates[int(rng.integers(len(gates)))], q)
+        elif kind == 3:
+            program.add(ops.RY(float(rng.uniform(0, 6.3))), q)
+        elif kind == 4 and n > 1:
+            a, b = (int(x) for x in rng.choice(n, 2, replace=False))
+            program.add([ops.CX, ops.CZ, ops.Swap][int(rng.integers(3))], (a, b))
+        elif kind == 5:
+            program.measure(q, q)
+        elif kind == 6:
+            program.add(ops.Reset, q)
+        else:
+            program.add(ops.X, q, condition=(int(rng.integers(n)), 1))
+    if not static and rng.random() < 0.5:
+        program.measure_all()
+    else:
+        # Not every qubit re-measured: removing gates after a measurement
+        # can then make it deferrable, which auto must not act on.
+        for q in range(n):
+            if q == 0 or rng.random() < 0.5:
+                program.measure(q, q)
+                program.add(ops.X, q)
+                program.add(ops.X, q)
+    return program, noise
+
+
+from fatqat.simulator import simulator as simulator_module  # noqa: E402
+
+shipped_min_work = dict(simulator_module._AUTO_SIMPLIFY_MIN_WORK)
+for runtime in [label.lower() for label in VALUE_ENGINES]:
+    start = time.time()
+    fails = 0
+    cases = 0
+    simulator_module._AUTO_SIMPLIFY_MIN_WORK[runtime] = 0
+    try:
+        for seed in range(count(300)):
+            rng = np.random.default_rng(BASE + 35_000 + seed)
+            program, noise = _auto_program(rng)
+            for method in ("statevector", "density_matrix"):
+                backend = Simulator(method, runtime=runtime, noise=noise)
+                runs = []
+                for simplify in ("auto", False):
+                    result = backend.run(
+                        program,
+                        shots=64,
+                        simulation_config={"seed": seed, "simplify": simplify},
+                    ).result()
+                    single = backend.run(
+                        program,
+                        shots=1,
+                        result_config={"counts": True, "final_state": True},
+                        simulation_config={"seed": seed, "simplify": simplify},
+                    ).result()
+                    state = np.asarray(getattr(single, f"get_{method}")())
+                    runs.append((result.get_counts(), state))
+                if runs[0][0] != runs[1][0] or not np.array_equal(
+                    runs[0][1], runs[1][1]
+                ):
+                    fails += 1
+                cases += 1
+    finally:
+        simulator_module._AUTO_SIMPLIFY_MIN_WORK.update(shipped_min_work)
+    results[f"simplify auto vs off, counts and states bit for bit ({runtime})"] = (
+        cases,
+        fails,
+        time.time() - start,
+    )
+    print(results, flush=True)
 
 # 5. Metal prototype == Numba tiles, bit patterns, random circuits at 11-13 qubits.
 try:

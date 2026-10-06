@@ -1,4 +1,4 @@
-# Optimisations: what r9, r10 and r11 change, and why accuracy and memory do not
+# Optimisations: what r9 to r12 change, and why accuracy and memory do not
 
 r9 adds three things on top of the r8 CUDA engine, r10 refines two of them,
 and r11 makes runs of many shots share their work and use several GPUs. Each
@@ -10,6 +10,8 @@ says which runtimes each change helps: several are GPU-only.
 | --- | --- | --- | --- |
 | Gate tiles (r9); controls and diagonal gates take no tile bit (r10) | CUDA statevectors and unitaries (shared memory), Numba statevectors (CPU cache) | equal to the per-gate kernels | unchanged; tiles live in on-chip memory |
 | `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding operations; closer to the ideal circuit on average (no per-circuit bound: a circuit can end up slightly worse) | unchanged; a planning step on the host |
+| `simplify="auto"`, the default (r12) | Numba and CUDA, states large enough for the pass to pay | bit-identical: only rewrites that round nothing | unchanged |
+| Phase folding in `simplify=True` (r12) | every runtime and method | as `simplify=True`: never more rounding | unchanged |
 | `device_id=(0, 1, ...)` or `"all"` for `run_sweep` and shot runs; one worker process per further GPU (r11) | CUDA | bit-identical to a one-GPU run | one copy of the state per GPU used |
 | Exact shot branching (r11) | every runtime, statevector and density-matrix runs of many shots | every shot's classical bits bit-identical to running it alone | pending states held to 1 GiB, or 8 states within half the free memory, then shot by shot |
 
@@ -117,6 +119,45 @@ phase is never discarded. On the NumPy runtime, which contracts through BLAS,
 some BLAS builds round an element by a fused or unfused path depending on its
 position, so even exact rewrites can move another gate's last-bit rounding
 there (at most `2.4·10⁻¹⁶` in the tests, unbiased).
+
+**On by default, without changing a value (r12).** `simplify="auto"`, the
+default, runs the same pass with the built-in `H`, `T`, `Tdg` and `SX` left
+as they are, and so are rotations: only unit gates (entries `0`, `±1`,
+`±i`) and gates on known basis inputs are rewritten (a known input only drops
+a gate, or shrinks it to a unit gate). Unit products are exact in any order,
+so every value is the plain run's on Numba and CUDA, for statevectors and
+density matrices alike (checked bit for bit on counts and states in
+`perf/differential_check.py`). Rotations stay out because CUDA's
+density-matrix kernel associates its two-sided product `U ρ U†` by the
+matrix's structure, and a built-in gate's key picks its own kernel there, so
+a rotation merged into a permutation can round differently in the last bit. It runs only when the work per step
+(amplitudes, times the shots for a run evolved shot by shot) reaches
+`2^19` on Numba or `2^25` on CUDA, where the pass costs at most a few per
+cent of a plain run of a circuit with nothing to simplify, and never on
+NumPy, for the BLAS reason above, or for sweeps.
+`result.metadata["simplification"]` records `{"applied": True, "steps":
+[before, after]}` or `{"applied": False, "reason": ...}`. The run keeps the
+execution path the plain circuit would take: removing gates after a
+measurement can make it deferrable, and a single-pass run would draw other
+random numbers, so `"auto"` does not re-plan the path (`True` does).
+
+**Phase folding (r12).** In `simplify=True`, before the merge, each qubit
+wire carries an affine parity of path variables: `X`, `CX`, `SWAP` and any
+other affine 0/1 permutation update it, a diagonal gate leaves it, and any
+other gate gives its wires fresh variables. A phase gate `diag(ω^a, ω^b)`
+multiplies each path by a power of `ω` that depends only on its wire's
+parity, so every phase on one parity sums, mod 8, into one gate at the first
+place the parity appeared (Nam et al. 2018, routine 4), with no global phase
+lost. A group is folded only when that removes rounding, or when nothing that
+rounds lies between its first and last gate. Measurements, resets, channels,
+loss and reloads end every group; conditioned gates and gates on qudits give
+their wires fresh variables. Folding comes before the merge, which would
+otherwise fuse `H T H` into a dense block that hides its phases; the two then
+repeat, up to three rounds, while a round strictly lowers the cost (rounding
+first, then steps). Neither pass ever adds rounding, so neither does the
+result. On phase gadgets (`CX`
+ladders around `T`, `Tdg` or `S` on recurring parities) this is where most of
+the gain comes from.
 
 Where in the code: `src/fatqat/_backends/simplify.py`, called from `Simulator._prepare_execution` in `src/fatqat/simulator/simulator.py`; tests: `tests/simulator/test_simplify.py`; measurement: `perf/simplify_check.py`.
 

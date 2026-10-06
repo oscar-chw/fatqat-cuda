@@ -219,13 +219,23 @@ and explicit parallel modes can be rejected when the Program cannot use them.
 Compiled or hand-written circuits often contain gates that cancel or
 collapse: `X` then `X`, `H X H` (which is `Z`), `T` then `T` (which is `S`),
 three `CX` gates that form a `SWAP`, or `CX RZ CX`, which is one diagonal
-`ZZ` rotation. With `simulation_config={"simplify": True}`, such runs are
-multiplied out before execution on every runtime, so the state is updated
-fewer times.
+`ZZ` rotation. Such runs are multiplied out before execution, so the state
+is updated fewer times.
+
+By default (`simplify="auto"`) only rewrites that change no value are made:
+products of unit gates (entries `0`, `±1`, `±i`) and gates on known basis
+inputs, on Numba and CUDA, when the state (times the shots, for a run evolved shot by shot) is
+large enough that the pass costs a few per cent of a plain run at most.
+`result.metadata["simplification"]` says whether it ran, and why not if it
+did not. `simulation_config={"simplify": True}` does more, as below, and
+`False` turns it off.
 
 Products are computed exactly, not in floating point, for unit gates
 (entries `0`, `±1`, `±i`: Paulis, `S`, `CX`, `SWAP`), the built-in `H`, `T`,
-`Tdg` and `SX`, and rotations conjugated by `±1` permutations. A run is
+`Tdg` and `SX`, and rotations conjugated by `±1` permutations. With `True`,
+phase gates (`T`, `Tdg`, `S`, `Z`) on the same parity of qubits are summed
+across `CX`, `X` and `SWAP` gates into one (phase folding), which removes
+most of the work from phase gadgets. A run is
 replaced only by a product that rounds no more, so the result is closer to
 the ideal circuit on average (no per-circuit bound: a circuit can end up slightly worse): rewrites
 of unit gates leave Numba and CUDA values unchanged, and cancelled `H` or `T`

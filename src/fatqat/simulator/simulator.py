@@ -118,6 +118,18 @@ from .._backends.steps import (
 
 _LOG = logging.getLogger(__name__)
 
+# simplify="auto": the smallest work per step (amplitudes times the passes
+# over them) at which the pass runs. Below it the pass would cost more than 5%
+# of a plain run of a circuit with nothing to simplify: about 14 us a step,
+# against about 0.5 ns (Numba) and 0.011 ns (CUDA) an amplitude, measured on
+# results/simplify-check*.json. NumPy is absent: it contracts through BLAS,
+# whose rounding can depend on an amplitude's position, so even moving
+# amplitudes exactly could change a last bit there (tests/simulator/
+# test_simplify.py, mixed radix).
+_AUTO_SIMPLIFY_MIN_WORK = {"numba": 1 << 19, "cuda": 1 << 25}
+# Amplitudes each method stores per entry of a state vector, as a power.
+_STATE_POWER = {"statevector": 1, "density_matrix": 2, "unitary": 2, "superop": 4}
+
 
 def _branch_bound(plan, system_dims, cap: int, *, stochastic: bool) -> int:
     """An upper bound on the groups shot branching splits a run into, up to ``cap``.
@@ -257,6 +269,8 @@ class _PreparedExecution:
     simulation: _SimulationConfig
     capabilities: _EngineCapabilities
     initial_state: np.ndarray | None
+    # What simplification did, for the result metadata.
+    simplification: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -776,20 +790,26 @@ class Simulator:
                 - ``"fusion"`` (``bool``, default ``False``): Whether to
                   combine compatible adjacent operations. ``True`` requires
                   Numba with ``density_matrix``, ``unitary``, or ``superop``.
-                - ``"simplify"`` (``bool``, default ``False``): Whether to
-                  simplify the circuit with exact gate algebra before
-                  execution: products of unit gates (entries ``0``, ``+-1``,
-                  ``+-i``) and of the built-in ``H``, ``T``, ``Tdg`` and ``SX``
-                  are computed exactly, so ``X`` then ``X`` cancels, ``S``
-                  then ``S`` becomes ``Z``, and ``H X H`` becomes ``Z``. A run
-                  is replaced only by a product that rounds no more, so the
-                  result is closer to the ideal circuit on average; rewrites
-                  among unit gates leave Numba and CUDA values unchanged.
-                  From the all-zero start, gates that act as the identity on
-                  subsystems still in a known basis state are dropped.
-                  Channels, measurements, resets, loss and reloads are never
-                  crossed.
-                  Not supported by ``run_sweep``.
+                - ``"simplify"`` (``"auto"``, ``True`` or ``False``, default
+                  ``"auto"``): Whether to simplify the circuit with exact
+                  gate algebra before execution. ``"auto"`` applies only
+                  rewrites that change no value on Numba and CUDA: unit
+                  gates (``X`` then ``X`` cancels, ``S`` then ``S``
+                  becomes ``Z``) and gates on known inputs, and only when the
+                  state is large enough for the pass to pay: it is skipped
+                  on NumPy, for sweeps, and for small runs, and result
+                  metadata ``"simplification"`` says what it did. ``True``
+                  also computes products of the built-in ``H``, ``T``,
+                  ``Tdg`` and ``SX`` exactly (``H X H`` becomes ``Z``) and
+                  folds phase gates on one parity across ``CX`` gates; a
+                  run is replaced only by a product that rounds no more, so
+                  the result is closer to the ideal circuit on average,
+                  though a single circuit can come out slightly worse.
+                  ``False`` turns it off. From the all-zero start, gates
+                  that act as the identity on subsystems still in a known
+                  basis state are dropped. Channels, measurements, resets,
+                  loss and reloads are never crossed. ``True`` is not
+                  supported by ``run_sweep``.
 
                 Unknown or incompatible entries are rejected.
             result_config: Optional output requests. Accepted keys are:
@@ -1101,6 +1121,7 @@ class Simulator:
             initial_state=initial_state,
             simulation=simulation,
             param_order=param_order,
+            shots=shots,
         )
         request = self._validate(
             config,
@@ -1132,6 +1153,7 @@ class Simulator:
             simulation=prepared.simulation,
             capabilities=prepared.capabilities,
             initial_state=prepared.initial_state,
+            simplification=prepared.simplification,
             config=config,
             shots=shots,
             request=request,
@@ -1146,6 +1168,7 @@ class Simulator:
         initial_state: Any,
         simulation: _SimulationConfig,
         param_order: tuple[Parameter, ...] | None = None,
+        shots: int = 0,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
         capabilities = self._engine.capabilities
@@ -1182,21 +1205,37 @@ class Simulator:
             plan, facts, initial_occupied = self._prepare_program(
                 program, context=lowering
             )
-            if simulation.simplify:
+            dims = engine_allocation.system_dims
+            skipped = self._simplify_skip_reason(simulation, facts, dims, shots)
+            if skipped is None:
+                steps = len(plan)
                 plan = simplify_plan(
                     plan,
-                    engine_allocation.system_dims,
+                    dims,
                     zero_start=initial_state is None and not self._is_operator,
+                    keep_values=simulation.simplify == "auto",
                 )
-                facts, initial_occupied = self._analyze_lowered_plan(plan)
+                if simulation.simplify is True:
+                    # Fewer gates can make a measurement deferrable and the
+                    # run single-pass: faster, with other draws. "auto"
+                    # keeps the original facts, so the run takes the path
+                    # (and draws) of the plain one.
+                    facts, initial_occupied = self._analyze_lowered_plan(plan)
+                simplification = {"applied": True, "steps": [steps, len(plan)]}
+            else:
+                simplification = {"applied": False, "reason": skipped}
         else:
-            if simulation.simplify:
+            if simulation.simplify is True:
                 # A sweep lowers once and materializes per point; simplifying
                 # each point plan is not implemented, and silently running
                 # unsimplified would misreport what was executed.
                 raise BackendValidationError(
                     "simplify=True is not supported by parameter sweeps"
                 )
+            simplification = {
+                "applied": False,
+                "reason": "off" if simulation.simplify is False else "sweep",
+            }
             plan, facts, initial_occupied = self._prepare_parametric_program(
                 program, context=lowering, param_order=param_order
             )
@@ -1209,7 +1248,22 @@ class Simulator:
             simulation=simulation,
             capabilities=capabilities,
             initial_state=initial_state,
+            simplification=simplification,
         )
+
+    def _simplify_skip_reason(self, simulation, facts, system_dims, shots):
+        """Why this run is not simplified, or ``None`` to simplify it."""
+        if simulation.simplify is False:
+            return "off"
+        if simulation.simplify is True:
+            return None
+        min_work = _AUTO_SIMPLIFY_MIN_WORK.get(self._runtime)
+        if min_work is None:
+            return "runtime"
+        work = prod(system_dims) ** _STATE_POWER[self._state_field]
+        if facts.execution_shape == "per_shot":
+            work *= max(shots, 1)  # the plan runs once per shot, at most
+        return "small" if work < min_work else None
 
     def _run_expectation(
         self,
@@ -1270,6 +1324,7 @@ class Simulator:
             resource_layout=None,
             initial_state=None,
             simulation=simulation,
+            shots=shots,
         )
         plan = execution.plan
         assert isinstance(plan, tuple), "expectation runs lower bound programs only"
@@ -1663,6 +1718,7 @@ class Simulator:
                 written_clbits=prepared.facts.written_clbits,
                 request=request,
                 shots=prepared.shots,
+                simplification=prepared.simplification,
             )
             return Job(status="DONE", result=result)
         except Exception as exc:  # execution-stage failure
@@ -2025,6 +2081,7 @@ class Simulator:
         written_clbits: frozenset[int],
         request: _ResultRequest,
         shots: int,
+        simplification: dict[str, Any],
     ) -> Result:
         """Build one public result without depending on execution routing."""
         engine_allocation = lowering.engine_allocation
@@ -2067,6 +2124,7 @@ class Simulator:
             "runtime": self._runtime,
             "simulation_config": asdict(simulation),
             "result_config": effective_result_config,
+            "simplification": simplification,
         }
         if state_requested:
             metadata["state_axes"] = _describe_state_axes(

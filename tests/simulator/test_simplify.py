@@ -24,6 +24,7 @@ from fatqat._backends.simplify import (
 from fatqat._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    BuiltinKernelKey,
     MeasurementStep,
     ResetStep,
 )
@@ -876,7 +877,6 @@ def test_rounding_cost_is_the_densest_row():
     # into one amplitude: a controlled H rounds like H (2), not like the
     # identity rows it also has (1); unit gates cost nothing.
     from fatqat._backends.simplify import _from_unit, _rounding, _TABLE
-    from fatqat._backends.steps import BuiltinKernelKey
 
     h, h_k = _TABLE[BuiltinKernelKey.H]
     controlled_h = np.zeros((4, 4, 4), dtype=np.int64)
@@ -890,3 +890,332 @@ def test_rounding_cost_is_the_densest_row():
     assert _rounding(_from_unit(np.eye(4, dtype=np.complex128)[[1, 0, 2, 3]]), 0) == 0
     t, t_k = _TABLE[BuiltinKernelKey.T]
     assert _rounding(t, t_k) == 1
+
+
+# --- simplify="auto", the default -------------------------------------------------
+
+
+def _require_cuda():
+    cupy = pytest.importorskip("cupy")
+    try:
+        if cupy.cuda.runtime.getDeviceCount() == 0:
+            pytest.skip("No CUDA device available")
+    except cupy.cuda.runtime.CUDARuntimeError as error:
+        pytest.skip(f"CUDA device discovery unavailable: {error}")
+
+
+def _auto_program(rng, n, depth):
+    """Clifford+T with rotations and cancelling pairs: some of it is unit gates
+    auto may rewrite, some H/T/SX it must leave alone."""
+    program = _clifford_t_program(rng, n, depth)
+    for _ in range(depth // 4):
+        q = int(rng.integers(n))
+        gate = [ops.X, ops.Z, ops.S, ops.CX][int(rng.integers(4))]
+        targets = (q, (q + 1) % n) if gate is ops.CX else q
+        program.add(gate, targets)
+        program.add(gate if gate is not ops.S else ops.Sdg, targets)
+    return program
+
+
+def _final(runtime, method, program, simplify, **config):
+    result = (
+        Simulator(method, runtime=runtime)
+        .run(
+            program,
+            shots=0,
+            result_config={"counts": False, "final_state": True},
+            simulation_config={"simplify": simplify, **config},
+        )
+        .result()
+    )
+    return getattr(result, f"get_{method}")(), result.metadata["simplification"]
+
+
+@pytest.mark.parametrize("runtime", ["numba", "cuda"])
+@pytest.mark.parametrize("method", ["statevector", "density_matrix", "unitary"])
+@pytest.mark.parametrize("seed", range(25))
+def test_auto_changes_no_value(monkeypatch, runtime, method, seed):
+    # Auto rewrites only what never rounds, so every value is the plain run's,
+    # bit for bit: removing H.H, T.Tdg or merging H X H would not be.
+    if runtime == "numba":
+        pytest.importorskip("numba")
+    else:
+        _require_cuda()
+    from fatqat.simulator import simulator as module
+
+    monkeypatch.setitem(module._AUTO_SIMPLIFY_MIN_WORK, runtime, 0)
+    program = _auto_program(np.random.default_rng(seed), 4, 60)
+    auto, record = _final(runtime, method, program, "auto")
+    plain, _ = _final(runtime, method, program, False)
+    np.testing.assert_array_equal(auto, plain)
+    assert record["applied"] and record["steps"][1] < record["steps"][0]
+
+
+def test_auto_leaves_the_gates_that_round_alone():
+    plan = (
+        ApplyMatrixStep(_H, (0,), kernel_key=BuiltinKernelKey.H),
+        ApplyMatrixStep(_H, (0,), kernel_key=BuiltinKernelKey.H),
+        _gate(_X, 0),
+        _gate(_X, 0),
+    )
+    assert simplify_plan(plan, (2,), keep_values=True) == plan[:2]
+    assert simplify_plan(plan, (2,)) == ()
+
+
+def test_auto_is_the_default_and_says_what_it_did(monkeypatch):
+    pytest.importorskip("numba")
+    from fatqat.simulator import simulator as module
+
+    program = fq.Program(2)
+    program.add(ops.X, 0)
+    program.add(ops.X, 0)
+    request = {"counts": False, "final_state": True}
+    small = Simulator("statevector").run(program, shots=0, result_config=request)
+    assert small.result().metadata["simplification"] == {
+        "applied": False,
+        "reason": "small",
+    }
+    assert small.result().metadata["simulation_config"]["simplify"] == "auto"
+    monkeypatch.setitem(module._AUTO_SIMPLIFY_MIN_WORK, "numba", 4)
+    done = Simulator("statevector").run(program, shots=0, result_config=request)
+    assert done.result().metadata["simplification"] == {
+        "applied": True,
+        "steps": [2, 0],
+    }
+    off = Simulator("statevector").run(
+        program, shots=0, result_config=request, simulation_config={"simplify": False}
+    )
+    assert off.result().metadata["simplification"] == {
+        "applied": False,
+        "reason": "off",
+    }
+
+
+def test_auto_never_simplifies_on_numpy(monkeypatch):
+    from fatqat.simulator import simulator as module
+
+    program = fq.Program(2)
+    program.add(ops.X, 0)
+    program.add(ops.X, 0)
+    _, record = _final("numpy", "statevector", program, "auto")
+    assert record == {"applied": False, "reason": "runtime"}
+    assert "numpy" not in module._AUTO_SIMPLIFY_MIN_WORK
+
+
+def test_auto_counts_the_work_of_every_shot(monkeypatch):
+    # A per-shot run evolves the plan once per shot, so small states with
+    # many shots are worth simplifying; one shot of the same state is not.
+    pytest.importorskip("numba")
+    from fatqat.simulator import simulator as module
+
+    monkeypatch.setitem(module._AUTO_SIMPLIFY_MIN_WORK, "numba", 4 * 100)
+    program = fq.Program(2, 2)
+    program.add(ops.X, 0)
+    program.measure(0, 0)  # mid-circuit: a per-shot run
+    program.add(ops.X, 1)
+    program.add(ops.X, 1)
+    program.measure((0, 1), (0, 1))
+    backend = Simulator("statevector")
+    few = backend.run(program, shots=50, simulation_config={"seed": 1})
+    many = backend.run(program, shots=100, simulation_config={"seed": 1})
+    assert few.result().metadata["simplification"]["reason"] == "small"
+    assert many.result().metadata["simplification"]["applied"]
+    assert few.result().get_counts() == {"10": 50}
+    assert many.result().get_counts() == {"10": 100}
+
+
+def test_auto_runs_a_sweep_plain_and_true_still_refuses_one():
+    theta = Parameter("theta")
+    program = fq.Program(1)
+    program.add(ops.RY(theta), 0)
+    backend = Simulator("statevector")
+    job = backend.run_sweep(
+        program,
+        {theta: [0.1, 0.2]},
+        shots=0,
+        result_config={"counts": False, "final_state": True},
+    )
+    assert job.status == "DONE"
+    assert job.result()[0].metadata["simplification"] == {
+        "applied": False,
+        "reason": "sweep",
+    }
+    with pytest.raises(
+        BackendValidationError, match="not supported by parameter sweeps"
+    ):
+        backend.run_sweep(
+            program, {theta: [0.1]}, shots=0, simulation_config={"simplify": True}
+        )
+
+
+# --- phase folding (simplify=True) ------------------------------------------------
+
+_T = np.diag([1, np.exp(0.25j * np.pi)])
+_TDG = _T.conj()
+
+
+def _t(q, matrix=None):
+    key = BuiltinKernelKey.T if matrix is None else BuiltinKernelKey.TDG
+    return ApplyMatrixStep(_T if matrix is None else matrix, (q,), kernel_key=key)
+
+
+def _fold(plan, dims=None):
+    from fatqat._backends.simplify import _fold_phases
+
+    dims = dims or (2,) * (1 + max(q for s in plan for q in s.target_indices))
+    return _fold_phases(plan, dims, _Merger(dims))
+
+
+def _same_operator(a, b, dims):
+    n = len(dims)
+    states = []
+    for plan in (a, b):
+        engine = NumpySVEngine()
+        columns = []
+        for column in np.eye(prod(dims), dtype=np.complex128):
+            engine.initialize(tuple(dims), initial_state=column)
+            for step in plan:
+                engine.apply(step)
+            columns.append(engine.export_state())
+        states.append(np.array(columns))
+    np.testing.assert_allclose(states[0], states[1], atol=1e-13, rtol=0)
+    assert n == len(dims)
+
+
+def test_phases_on_one_parity_fold_across_cx():
+    # T on q1, then on q0 xor q1 (left alone), then Tdg back on q1: the
+    # first and last cancel exactly, though CX gates lie between them.
+    plan = (_t(1), _gate(_CX, 0, 1), _t(1), _gate(_CX, 0, 1), _t(1, _TDG))
+    folded = _fold(plan)
+    assert folded == plan[1:4]
+    _same_operator(plan, folded, (2, 2))
+
+
+def test_an_x_between_phases_is_tracked_as_a_constant():
+    # T, X, T: the second T sees the flipped wire, so the sum is a global
+    # phase w on that wire: diag(w, w), one rounding instead of two.
+    plan = (_t(0), _gate(_X, 0), _t(0))
+    folded = _fold(plan)
+    assert len(folded) == 2 and folded[1] is plan[1]
+    w = complex(0.7071067811865476, 0.7071067811865476)  # w, correctly rounded
+    np.testing.assert_array_equal(folded[0].matrix, w * np.eye(2))
+    _same_operator(plan, folded, (2,))
+
+
+@pytest.mark.parametrize(
+    "between",
+    [
+        _gate(_H, 0),  # a fresh variable
+        MeasurementStep((1,), (0,)),  # a global barrier
+        ApplyMatrixStep(_X, (0,), condition=((0, 1),)),  # conditioned
+    ],
+    ids=["hadamard", "measurement", "conditioned"],
+)
+def test_phases_separated_by_a_non_affine_step_stay_apart(between):
+    plan = (_t(0), between, _t(0))
+    assert _fold(plan, (2, 2)) == plan
+
+
+def test_a_fold_that_removes_no_rounding_never_crosses_one():
+    # S then T is one rounding either way; moving the T back across a
+    # rotation on another qubit would round that rotation's amplitudes in
+    # another order, so the pair is folded only when nothing rounds between.
+    rotation = _gate(np.diag(np.exp(1j * np.array([0.3, -0.3]))), 1)
+    blocked = (_gate(_S, 0), rotation, _t(0))
+    assert _fold(blocked) == blocked
+    free = (_gate(_S, 0), _gate(_CX, 1, 0), _gate(_CX, 1, 0), _t(0))
+    assert len(_fold(free)) == 3
+
+
+def test_phases_on_a_qutrit_wire_are_left_alone():
+    z3 = np.diag(np.exp(2j * np.pi * np.arange(3) / 3))
+    plan = (_t(0), _gate(np.kron(np.eye(2), z3), 0, 1), _t(0))
+    folded = _fold(plan, (2, 3))
+    assert folded == plan
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_folding_keeps_the_circuit_and_never_adds_rounding(seed):
+    from fatqat._backends.simplify import _plan_cost
+
+    rng = np.random.default_rng(seed)
+    program = _clifford_t_program(rng, 4, 80)
+    backend = Simulator("statevector", runtime="numpy")
+    plan, _ = backend._lower_program(program)
+    simplified = simplify_plan(plan, (2,) * 4)
+    merger = _Merger((2,) * 4)
+    assert _plan_cost(merger, simplified)[0] <= _plan_cost(merger, plan)[0]
+    assert len(simplified) <= len(plan)
+    _same_operator(plan, simplified, (2,) * 4)
+
+
+def test_folding_finds_what_the_merge_alone_cannot():
+    from fatqat._backends.simplify import _merge_pass
+
+    removed = 0
+    for seed in range(20):
+        program = _clifford_t_program(np.random.default_rng(seed), 4, 80)
+        plan, _ = Simulator("statevector", runtime="numpy")._lower_program(program)
+        merged = _merge_pass(_Merger((2,) * 4), plan, (2,) * 4, False)
+        removed += len(merged) - len(simplify_plan(plan, (2,) * 4))
+    assert removed > 0
+
+
+def test_auto_keeps_the_execution_path_of_the_plain_run():
+    # Removing X X after a measurement leaves that measurement deferrable;
+    # re-planning would run single-pass, with other draws. Auto must not.
+    pytest.importorskip("numba")
+    program = fq.Program(10, 10)
+    program.add(ops.H, 1)
+    program.measure(1, 1)
+    program.add(ops.X, 1)
+    program.add(ops.X, 1)
+    program.add(ops.H, 0)
+    program.measure(0, 0)
+    for method in ("statevector", "density_matrix"):
+        backend = Simulator(method, runtime="numba")
+        runs = [
+            backend.run(
+                program, shots=1000, simulation_config={"seed": 1, "simplify": s}
+            ).result()
+            for s in ("auto", False)
+        ]
+        assert runs[0].metadata["simplification"]["applied"]
+        assert runs[0].get_counts() == runs[1].get_counts()
+    state_program = fq.Program(4, 4)
+    state_program.measure(3, 3)
+    state_program.add(ops.Swap, (1, 3))
+    state_program.add(ops.Swap, (1, 3))
+    state_program.add(ops.H, 0)
+    request = {"counts": True, "final_state": True}
+    states = [
+        Simulator("statevector", runtime="numba")
+        .run(
+            state_program,
+            shots=1,
+            result_config=request,
+            simulation_config={"seed": 1, "simplify": s},
+        )
+        .result()
+        .get_statevector()
+        for s in ("auto", False)
+    ]
+    np.testing.assert_array_equal(states[0], states[1])
+
+
+def test_auto_merges_no_rotation_and_shrinks_none():
+    rz = np.diag(np.exp(1j * np.array([-0.15, 0.15])))
+    sandwich = (_gate(_X, 0), _gate(rz, 0), _gate(_X, 0))
+    assert simplify_plan(sandwich, (2,), keep_values=True) == sandwich
+    assert len(simplify_plan(sandwich, (2,))) == 1
+    # A controlled rotation whose control is known |1>: True runs the bare
+    # rotation, auto keeps the two-qubit gate (another kernel would round
+    # differently).
+    ry = np.array([[np.cos(0.2), -np.sin(0.2)], [np.sin(0.2), np.cos(0.2)]])
+    cry = np.eye(4, dtype=np.complex128)
+    cry[2:, 2:] = ry
+    plan = (_gate(_X, 0), _gate(_H, 1), _gate(cry, 0, 1))  # q1 left unknown
+    kept = simplify_plan(plan, (2, 2), zero_start=True, keep_values=True)
+    assert [s.target_indices for s in kept] == [(0,), (1,), (0, 1)]
+    shrunk = simplify_plan(plan, (2, 2), zero_start=True)
+    assert [s.target_indices for s in shrunk][-1] == (1,)
