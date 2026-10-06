@@ -4,6 +4,11 @@ title: "PulseOperation"
 
 # PulseOperation
 
+!!! warning "Pulse control under development"
+
+    The pulse control module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
 
 [`PulseOperation`][fatqat.operations.PulseOperation] adds an explicit pulse block to a program. Import
 it from `fatqat.operations`, normally as `ops.PulseOperation`.

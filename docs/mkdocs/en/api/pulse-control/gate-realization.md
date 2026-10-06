@@ -4,6 +4,11 @@ title: "Gate realization"
 
 # Gate realization
 
+!!! warning "Pulse control under development"
+
+    The pulse control module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
 
 [`PulseImplementationMap`][fatqat.emulator.PulseImplementationMap] maps ordinary gates to pulse
 definitions. A direct [PulseOperation](pulse-operation.md) already contains its controls and

@@ -142,7 +142,29 @@ def compile_qasm_to_sc(
     filename: str | None = None,
     seed: int = 0,
 ) -> CompilationResult:
-    """Compile OpenQASM to an executable SC result at the final boundary."""
+    """Compile OpenQASM for a superconducting target.
+
+    Args:
+        source: OpenQASM 2 or 3 text, or an existing QasmSource.
+        backend: SCQubitSimulator supplying capacity and connectivity.
+        emit: Representation to return; defaults to SCNativeProgram.IR_ID.
+            Supported values are QasmSource.IR_ID, LogicalIR.IR_ID,
+            SCProgram.IR_ID, and SCNativeProgram.IR_ID.
+        filename: Optional source label retained on the QasmSource boundary.
+            It cannot be supplied when source is already a QasmSource.
+        seed: Routing seed, default 0.
+
+    Returns:
+        ExecutableCompilationResult at the final native boundary;
+        CompilationResult for an earlier emit boundary.
+
+    Raises:
+        TypeError: If source is neither text nor an exact QasmSource.
+        ValueError: If filename accompanies an existing QasmSource.
+        ValidationError: If an IR boundary is invalid.
+        EmitNotFoundError: If emit is not a boundary of the SC route.
+        PassError: If parsing, normalization, routing, or lowering fails.
+    """
 
     return _package_sc_result(
         create_sc_pipeline().compile(
@@ -161,7 +183,32 @@ def compile_to_sc(
     emit: str = SCNativeProgram.IR_ID,
     seed: int = 0,
 ) -> CompilationResult:
-    """Compile a logical program to an executable SC result at the final boundary."""
+    """Compile a LogicalProgram to an executable superconducting result.
+
+    Lowering snapshots the source without editing it. The SC route decomposes
+    Toffoli (CCX) gates before routing. Bind symbolic parameters before compiling;
+    measurements must be terminal, and classical conditions and direct physical
+    controls are unsupported. Register views expand into scalar gates when frozen.
+
+    Args:
+        source: An exact LogicalProgram containing static numeric gates.
+        backend: SCQubitSimulator supplying the capacity and coupling graph.
+        emit: Representation to return; defaults to SCNativeProgram.IR_ID.
+            Supported values are LogicalProgram.IR_ID, LogicalIR.IR_ID,
+            SCProgram.IR_ID, and SCNativeProgram.IR_ID.
+        seed: Routing seed, default 0.
+
+    Returns:
+        ExecutableCompilationResult at the final boundary; CompilationResult
+        for earlier boundaries. Emitting LogicalProgram.IR_ID runs no passes:
+        the LogicalProgram input is returned unchanged. Static gate and target
+        validation begins at later boundaries.
+
+    Raises:
+        ValidationError: If the source type or an IR boundary is invalid.
+        EmitNotFoundError: If emit is not a boundary of the selected route.
+        PassError: If snapshotting or target lowering fails.
+    """
 
     return _package_sc_result(
         create_sc_pipeline().compile(
@@ -200,7 +247,29 @@ def compile_qasm_to_na(
     emit: str = ZonedPlan.IR_ID,
     filename: str | None = None,
 ) -> CompilationResult:
-    """Compile OpenQASM to an executable ZAP-scheduled result at the final boundary."""
+    """Compile OpenQASM for a neutral-atom architecture.
+
+    Args:
+        source: OpenQASM 2 or 3 text, or an existing QasmSource.
+        architecture: ZAP architecture mapping, as returned by
+            load_architecture.
+        emit: Representation to return; defaults to ZonedPlan.IR_ID.
+            Supported values are QasmSource.IR_ID, LogicalIR.IR_ID,
+            NAProgram.IR_ID, and ZonedPlan.IR_ID.
+        filename: Optional source label retained on the QasmSource boundary.
+            It cannot be supplied when source is already a QasmSource.
+
+    Returns:
+        ExecutableCompilationResult at the final zoned-plan boundary;
+        CompilationResult for an earlier emit boundary.
+
+    Raises:
+        TypeError: If source is neither text nor an exact QasmSource.
+        ValueError: If filename accompanies an existing QasmSource.
+        ValidationError: If an IR boundary is invalid.
+        EmitNotFoundError: If emit is not a boundary of the NA route.
+        PassError: If parsing, normalization, or ZAP scheduling fails.
+    """
 
     return _package_na_result(
         create_na_pipeline().compile(
@@ -218,7 +287,32 @@ def compile_to_na(
     *,
     emit: str = ZonedPlan.IR_ID,
 ) -> CompilationResult:
-    """Compile a logical program to an executable NA result at the final boundary."""
+    """Compile a LogicalProgram to an executable neutral-atom result.
+
+    Lowering snapshots the source without editing it. Bind symbolic parameters
+    before compiling; measurements must be terminal, and classical conditions
+    and direct physical controls are unsupported. Register views expand into
+    scalar gates when frozen.
+    NA lowering rejects SX and Reset operations.
+
+    Args:
+        source: An exact LogicalProgram containing static numeric gates.
+        architecture: ZAP architecture mapping, as returned by load_architecture.
+        emit: Representation to return; defaults to ZonedPlan.IR_ID.
+            Supported values are LogicalProgram.IR_ID, LogicalIR.IR_ID,
+            NAProgram.IR_ID, and ZonedPlan.IR_ID.
+
+    Returns:
+        ExecutableCompilationResult at the final boundary; CompilationResult
+        for earlier boundaries. Emitting LogicalProgram.IR_ID runs no passes:
+        the LogicalProgram input is returned unchanged. Static gate and target
+        validation begins at later boundaries.
+
+    Raises:
+        ValidationError: If the source type or an IR boundary is invalid.
+        EmitNotFoundError: If emit is not a boundary of the selected route.
+        PassError: If snapshotting or target lowering fails.
+    """
 
     return _package_na_result(
         create_na_pipeline().compile(
