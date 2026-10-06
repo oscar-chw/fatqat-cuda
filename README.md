@@ -134,6 +134,14 @@ sequenceDiagram
 
 Where in the code: `src/fatqat/simulator/_engine/cupy.py` (`_execution_scope`, `_matrix_array`, `_allocate`, `export_state`, `sample_indices`, `expectation_values`), `src/fatqat/simulator/simulator.py` (`_execute_expectation_base`, `_execute_sampled_expectation`); tests: `tests/simulator/test_cuda_resident.py`.
 
+### Design decisions and trade-offs
+
+- **complex128, not complex64.** Twice the memory and bandwidth per amplitude, in exchange for GPU results that match the CPU engines (≤ 3.1 eps against a 60-digit reference).
+- **CuPy `RawKernel`s, not a compiled CUDA extension.** The GPU path stays an optional pip extra with nothing to build. The cost is a CuPy dependency and a compile step the first time each kernel runs (CuPy caches it on disk).
+- **Hand-written kernels only for one- and two-qubit gates.** Wider gates and mixed dimensions use CuPy tensor contraction, which is correct but not tuned.
+- **`simplify=True` merges only gates that never round.** Values stay bit-identical. Merging rotations or `H` was measured as less accurate ([why](docs/optimisations.md)), so those larger gains are given up.
+- **Several GPUs split `run_sweep` rows, never one state.** No traffic between GPUs, and each row is computed exactly as on one GPU. The largest state is still bounded by one GPU's memory.
+
 ## Results
 
 All figures are medians of warm public calls on 2026-10-06, complex128, including synchronisation and host output,
@@ -163,6 +171,7 @@ How each change keeps accuracy and memory: [docs/optimisations.md](docs/optimisa
 python -m pip install --upgrade pip
 python -m pip install --editable . --group dev --group qiskit
 python -m pytest -q        # expect: all pass; the CUDA tests skip (CuPy not installed)
+python -m pip install mpmath && PYTHON=python bash scripts/check.sh   # whole gate: tests, then the accuracy demo
 
 # NVIDIA GPU: install exactly one CUDA extra matching your toolkit ('.[cuda12]' is the other)
 python -m pip install --editable '.[cuda13]' --group dev --group qiskit mpmath
@@ -178,6 +187,7 @@ The r8 GPU run used CUDA 13.2 and CuPy 14.2 (`verification.json`); CI runs the C
 src/fatqat/                FatQat package; fork code: simulator/_engine/cupy.py, nb.py tiles, _backends/simplify.py
 tests/                     upstream suite plus the CUDA tests (tests/simulator/test_cuda_*.py, test_cupy_*.py)
 perf/                      precision, scaling and sweep benchmarks, and the publication scrub check
+scripts/                   check.sh (tests, then demo.sh) and demo.sh (accuracy against a 60-digit reference)
 results/                   scrubbed benchmark and precision records, and how to read them
 docs/                      fork pages, the upstream README and design notes, the MkDocs site (docs/mkdocs/)
 .github/workflows/         upstream tests and lint, plus the fork's CPU-path CI
