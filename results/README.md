@@ -77,9 +77,18 @@ These files name the commit they measured, which is in the public history:
 | `shots-cuda.json` | The same on one GPU at 20–24 qubits, and two GPUs against one at 20–26 qubits (one worker process per further GPU), arm order alternating; counts asserted equal; load readings removed | `perf/shots_check.py out.json 20 22 24`, then `--no-per-shot 26` |
 | `precision-r11.json` | The 110 circuits of `precision.json` on r11 code: identical to `precision-r10.json` on every circuit and runtime | `perf/precision.py --require-gpu` |
 | `differential-check.json` | r10's 9,500 circuits plus 10,000 random plans comparing shot branching with the one-shot loop on every CPU engine, every shot's classical bits | `perf/differential_check.py` |
+| `differential-check-cuda.json` | The same check on a machine with a GPU: the value checks of simplification repeated on the CUDA engine, and branching on the CUDA statevector and density-matrix engines too (29,200 cases) | `perf/differential_check.py` |
 
 `differential-check.json` replaces r10's file of the same name, whose checks
 it repeats.
+
+The r11 files were measured at successive commits of the final review, each
+named in its file: `branching-check.json` and `precision-r11.json` at
+4f62e6c, `differential-check-cuda.json` at 4f62e6c, `differential-check.json`
+at 7780495, `shots-cuda.json` at b0a8d67. The commits between change tests,
+documentation, cache size limits and, at b0a8d67, which runs spread their
+shots over several GPUs (only `shots-cuda.json` depends on that, and it was
+measured after it); none changes a computed value.
 
 ## Earlier record
 

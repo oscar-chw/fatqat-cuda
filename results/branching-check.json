@@ -1,7 +1,7 @@
 {
  "description": "Check that exact shot branching pays, with counts equal shot for shot.",
  "measurement_date": "2026-10-07",
- "code_revision": "a7f5502",
+ "code_revision": "4f62e6c",
  "run_configuration": "one CPU, shots run serially in one process",
  "arms": {
   "per_shot": "every shot evolved alone from the start (the loop before r11)",
@@ -18,10 +18,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 5.337305041961372,
-    "branching": 0.4727256251499057
+    "per_shot": 5.522988207638264,
+    "branching": 0.4869251661002636
    },
-   "speedup": 11.290492323679011,
+   "speedup": 11.342581144185544,
    "counts_equal": true,
    "distinct_outcomes": 193
   },
@@ -32,10 +32,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 4.268765541259199,
-    "branching": 0.7619607080705464
+    "per_shot": 8.05591958295554,
+    "branching": 1.6414146251045167
    },
-   "speedup": 5.602343396510118,
+   "speedup": 4.907912638126141,
    "counts_equal": true,
    "distinct_outcomes": 169
   },
@@ -46,10 +46,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 4.570063750259578,
-    "branching": 3.481646958272904
+    "per_shot": 4.824515665881336,
+    "branching": 3.8775972919538617
    },
-   "speedup": 1.3126154963530796,
+   "speedup": 1.244202350742394,
    "counts_equal": true,
    "distinct_outcomes": 200
   },
@@ -60,10 +60,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 22.203052500262856,
-    "branching": 1.8434678339399397
+    "per_shot": 21.99964241683483,
+    "branching": 1.826277791056782
    },
-   "speedup": 12.044176790874364,
+   "speedup": 12.046164348362721,
    "counts_equal": true,
    "distinct_outcomes": 199
   },
@@ -74,10 +74,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 16.53513079183176,
-    "branching": 2.7208075830712914
+    "per_shot": 18.430525375064462,
+    "branching": 3.1225718748755753
    },
-   "speedup": 6.0772878224510976,
+   "speedup": 5.9023542495075025,
    "counts_equal": true,
    "distinct_outcomes": 165
   },
@@ -88,10 +88,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 17.51642058417201,
-    "branching": 14.42809179238975
+    "per_shot": 16.441280083265156,
+    "branching": 13.109399458859116
    },
-   "speedup": 1.2140497049936452,
+   "speedup": 1.2541596687828755,
    "counts_equal": true,
    "distinct_outcomes": 197
   },
@@ -102,10 +102,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 4.902335166931152,
-    "branching": 0.06920770928263664
+    "per_shot": 5.287425875198096,
+    "branching": 0.06836745841428638
    },
-   "speedup": 70.83510229923313,
+   "speedup": 77.33834192223257,
    "counts_equal": true,
    "distinct_outcomes": 193
   },
@@ -116,10 +116,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 4.617931833025068,
-    "branching": 0.7239732500165701
+    "per_shot": 4.490417167078704,
+    "branching": 0.7296070829033852
    },
-   "speedup": 6.378594558458305,
+   "speedup": 6.154569044491207,
    "counts_equal": true,
    "distinct_outcomes": 169
   },
@@ -130,10 +130,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 5.145025041885674,
-    "branching": 3.5921006249263883
+    "per_shot": 5.775242708623409,
+    "branching": 4.727195625193417
    },
-   "speedup": 1.4323165131241582,
+   "speedup": 1.221705883683862,
    "counts_equal": true,
    "distinct_outcomes": 200
   },
@@ -144,10 +144,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 9.866158875171095,
-    "branching": 0.13864166708663106
+    "per_shot": 12.535838542040437,
+    "branching": 0.15879891579970717
    },
-   "speedup": 71.16301385070743,
+   "speedup": 78.94158772375921,
    "counts_equal": true,
    "distinct_outcomes": 199
   },
@@ -158,10 +158,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 7.548244915902615,
-    "branching": 1.2201694161631167
+    "per_shot": 6.888534625060856,
+    "branching": 1.106158500071615
    },
-   "speedup": 6.186226941860619,
+   "speedup": 6.227439037547403,
    "counts_equal": true,
    "distinct_outcomes": 165
   },
@@ -172,10 +172,10 @@
    "shots": 200,
    "repeats": 3,
    "median_s": {
-    "per_shot": 7.708936125040054,
-    "branching": 6.127992499619722
+    "per_shot": 7.1249722498469055,
+    "branching": 5.628696791827679
    },
-   "speedup": 1.257987199807839,
+   "speedup": 1.26582982053531,
    "counts_equal": true,
    "distinct_outcomes": 197
   }

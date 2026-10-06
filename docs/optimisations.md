@@ -9,7 +9,7 @@ says which runtimes each change helps: several are GPU-only.
 | Change | Runtimes | Accuracy | Memory |
 | --- | --- | --- | --- |
 | Gate tiles (r9); controls and diagonal gates take no tile bit (r10) | CUDA statevectors and unitaries (shared memory), Numba statevectors (CPU cache) | equal to the per-gate kernels | unchanged; tiles live in on-chip memory |
-| `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding operations; closer to the ideal circuit on average (a circuit can end up to 0.06 eps worse) | unchanged; a planning step on the host |
+| `simulation_config={"simplify": True}`: exact gate algebra (r10) | every runtime and method | never more rounding operations; closer to the ideal circuit on average (no per-circuit bound: a circuit can end up slightly worse) | unchanged; a planning step on the host |
 | `device_id=(0, 1, ...)` or `"all"` for `run_sweep` and shot runs; one worker process per further GPU (r11) | CUDA | bit-identical to a one-GPU run | one copy of the state per GPU used |
 | Exact shot branching (r11) | every runtime, statevector and density-matrix runs of many shots | every shot's classical bits bit-identical to running it alone | pending states held to 1 GiB, or 8 states within half the free memory, then shot by shot |
 
