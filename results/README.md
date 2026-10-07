@@ -115,6 +115,19 @@ later than its 2^14 amplitudes.
 | `metal-check.json` | `runtime="metal"` against Numba alone at 24 and 26 qubits on the four tile workloads, adaptive and fixed GPU shares, arms alternating; every state compared by bit pattern; resident memory over 100 states | `perf/metal_check.py --qubits 24 26` |
 | `auto-check.json` | `runtime="auto"` against Numba and one GPU, statevectors at 10–24 qubits and density matrices at 5–12, arms alternating; counts asserted equal to the chosen runtime's | `perf/auto_check.py` |
 
+## Current-code baseline
+
+| File | What it holds | Produced by |
+| --- | --- | --- |
+| `scaling-r14.json` | The r9 scaling workloads on the r13 code (commit e59f771, simplification off): one GPU against compiled Numba at 32 threads, in one run on a shared server | `perf/scaling.py --threads 32 --require-gpu --max-qubits 28` |
+| `scaling-r14-cpu96.json` | The CPU rows again at 96 threads | `perf/scaling.py --threads 96 --runtimes numba --max-qubits 28` |
+
+Against r9's files, the CPU engine is 1.3–2.3× faster (r10's tiles) and the
+GPU 1.5–1.7× slower: bisected to r10's exact complex products (Kahan's
+algorithm for each 2×2 determinant, commit 0bd7467). With plain products,
+spelled out the same way so tiles and per-gate kernels still agree, the GPU
+regains 1.5× on observables at 24–26 qubits (an unpublished measurement).
+
 ## Earlier record
 
 `benchmarks.json` is a scrubbed transcription of the benchmark record behind
