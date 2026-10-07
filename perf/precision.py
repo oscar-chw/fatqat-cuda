@@ -184,10 +184,20 @@ def build_program(case: Case, steps):
     return program, options
 
 
-def run_arm(case: Case, steps, initial, runtime: str, simplify: bool) -> np.ndarray:
+def run_arm(
+    case: Case,
+    steps,
+    initial,
+    runtime: str,
+    simplify: bool,
+    gpu_products: str = "compensated",
+) -> np.ndarray:
     program, options = build_program(case, steps)
     backend = Simulator(case.method, runtime=runtime, **options)
-    config = {"simplify": True} if simplify else None
+    # Explicit: since r12 the default ("auto") may rewrite unit gates.
+    config = {"simplify": simplify}
+    if runtime == "cuda" and case.method in ("statevector", "unitary"):
+        config["gpu_products"] = gpu_products  # the methods it applies to
     result = backend.run(
         program,
         shots=0,
@@ -433,6 +443,12 @@ def main(argv: list[str] | None = None) -> int:
         "Haar-random gates leave unchanged (perf/simplify_check.py measures "
         "simplification itself)",
     )
+    parser.add_argument(
+        "--gpu-products",
+        choices=("compensated", "plain"),
+        default="compensated",
+        help="the CUDA arm's simulation_config gpu_products",
+    )
     args = parser.parse_args(argv)
 
     with_gpu = cuda_available()
@@ -463,7 +479,9 @@ def main(argv: list[str] | None = None) -> int:
                 errors = {}
                 for label in arms_for(with_gpu):
                     runtime = label
-                    state = run_arm(case, steps, initial, runtime, args.simplify)
+                    state = run_arm(
+                        case, steps, initial, runtime, args.simplify, args.gpu_products
+                    )
                     errors[label] = error_eps(state, reference)
                     if (
                         runtime != "cuda"
@@ -513,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
         "software": versions,
         "gpu_measured": with_gpu,
         "simplify": args.simplify,
+        "gpu_products": args.gpu_products,
         "oracle_decimal_digits": DIGITS,
         "error_unit": "float64 machine epsilon",
         "cpu_control_tolerance": CONTROL_ATOL,

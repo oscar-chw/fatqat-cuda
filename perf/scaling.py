@@ -133,6 +133,8 @@ def child(args) -> None:
     # Off unless asked: the default ("auto") would time a planning pass too,
     # and the engines are what this compares.
     config["simplify"] = bool(args.simplify)
+    if args.runtime == "cuda" and method in ("statevector", "unitary"):
+        config["gpu_products"] = args.gpu_products  # the methods it applies to
 
     def execute():
         if observable_case:
@@ -202,22 +204,28 @@ def _thread_env(threads: int) -> dict:
     return env
 
 
-def measure(workload, qubits, runtime, threads, repeats, timeout, simplify) -> dict:
-    command = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--child",
-        "--workload",
-        workload,
-        "--qubits",
-        str(qubits),
-        "--runtime",
-        runtime,
-        "--threads",
-        str(threads),
-        "--repeats",
-        str(repeats),
-    ] + (["--simplify"] if simplify else [])
+def measure(
+    workload, qubits, runtime, threads, repeats, timeout, simplify, gpu_products
+) -> dict:
+    command = (
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--child",
+            "--workload",
+            workload,
+            "--qubits",
+            str(qubits),
+            "--runtime",
+            runtime,
+            "--threads",
+            str(threads),
+            "--repeats",
+            str(repeats),
+        ]
+        + (["--simplify"] if simplify else [])
+        + ["--gpu-products", gpu_products]
+    )
     completed = subprocess.run(
         command,
         env=_thread_env(threads),
@@ -312,6 +320,12 @@ def main(argv: list[str] | None = None) -> int:
         help="time every call with simulation_config simplify=True",
     )
     parser.add_argument(
+        "--gpu-products",
+        choices=("compensated", "plain"),
+        default="compensated",
+        help="the GPU's simulation_config gpu_products",
+    )
+    parser.add_argument(
         "--revision-label", default=None, help="engine revision label, e.g. r8"
     )
     args = parser.parse_args(argv)
@@ -357,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.repeats,
                     timeout,
                     args.simplify,
+                    args.gpu_products,
                 )
                 if row[runtime]["median_ms"] > args.max_seconds * 1e3:
                     stopped.add(runtime)
@@ -422,6 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         "code_revision": revision(),
         "revision": args.revision_label,
         "simplify": args.simplify,
+        "gpu_products": args.gpu_products,
         "software": software,
         "gpu_measured": with_gpu,
         "configurations": {

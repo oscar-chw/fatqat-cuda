@@ -23,6 +23,7 @@ class _SimulationConfig:
     max_workers: Any = None
     fusion: Any = False
     simplify: Any = "auto"
+    gpu_products: Any = "compensated"
 
     def __post_init__(self) -> None:
         if self.seed is not None and (type(self.seed) is not int):
@@ -66,6 +67,14 @@ class _SimulationConfig:
             )
         if type(self.fusion) is not bool:
             raise BackendValidationError(f"fusion must be a bool, got {self.fusion!r}")
+        if not isinstance(self.gpu_products, str) or self.gpu_products not in {
+            "compensated",
+            "plain",
+        }:
+            raise BackendValidationError(
+                "gpu_products must be 'compensated' or 'plain', got "
+                f"{self.gpu_products!r}"
+            )
         if type(self.simplify) is not bool and not (
             type(self.simplify) is str and self.simplify == "auto"
         ):

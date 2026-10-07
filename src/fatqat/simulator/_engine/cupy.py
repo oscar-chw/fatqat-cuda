@@ -53,12 +53,31 @@ __device__ __forceinline__ double2 cmul_add(double2 acc, double2 m, double2 a) {
     return make_double2(__dadd_rn(acc.x, t.x), __dadd_rn(acc.y, t.y));
 }
 """
+# simulation_config gpu_products="plain": each part of a product is one FMA
+# on one rounded product, as the CPU engines' compiled arithmetic can fuse it,
+# still spelled out so the per-gate kernels and the tiles agree bit for bit.
+# About 1.4-1.5x faster on observables at 24-28 qubits (results/scaling-r15-
+# plain.json against scaling-r14.json); on the 110 circuits of
+# perf/precision.py no less accurate on average (+0.03 +- 0.03 eps) than the
+# compensated products, but without their per-product bound under
+# cancellation (one circuit 1.5 eps worse; results/precision-r15-*.json).
+_PLAIN_COMPLEX_OPS = _COMPLEX_OPS.replace(
+    """    const double w = __dmul_rn(c, d);
+    const double error = __fma_rn(-c, d, w);  // w - c*d, exactly
+    return __dadd_rn(__fma_rn(a, b, -w), error);""",
+    """    return __fma_rn(a, b, -__dmul_rn(c, d));""",
+)
+assert _PLAIN_COMPLEX_OPS != _COMPLEX_OPS
 
 
 class _CupyRuntime:
     """Device ownership shared by CUDA matrix-family engines."""
 
     _supports_shot_workers = False
+    # Whether this engine's gate kernels use _complex_ops (gpu_products):
+    # the statevector and unitary engines; the density-matrix and
+    # superoperator ones apply gates through their own sandwich kernels.
+    _uses_gpu_products = False
 
     def __init__(self, name, *, device_id: int = 0):
         super().__init__(name)
@@ -67,6 +86,14 @@ class _CupyRuntime:
         self.device_id = device_id
         self._matrix_cache = {}
         self._kernels = {}
+        # "compensated" or "plain": simulation_config gpu_products, set by
+        # the Simulator before each run.
+        self.gpu_products = "compensated"
+
+    def _complex_ops(self) -> str:
+        if self.gpu_products == "plain":
+            return _PLAIN_COMPLEX_OPS
+        return _COMPLEX_OPS
 
     @cached_property
     def _cp(self):
@@ -258,7 +285,7 @@ class _CupyRuntime:
         width = len(targets)
         dim = 1 << width
         diagonal, permutation, fixed = structure
-        key = (width, diagonal, permutation >= 0)
+        key = (width, diagonal, permutation >= 0, self.gpu_products)
         if key not in self._kernels:
             if diagonal:
                 source = r"""
@@ -311,7 +338,7 @@ class _CupyRuntime:
                 }
                 """
             source = source.replace("WIDTH", str(width)).replace("DIM", str(dim))
-            source = _COMPLEX_OPS + source.replace(
+            source = self._complex_ops() + source.replace(
                 "MONOMIAL", str(int(permutation >= 0))
             )
             # No fast-math or reduced-precision mode; ordinary binary64 ops.
@@ -594,7 +621,7 @@ class _GateTiles(_TileQueue):
             ]  # fmt: skip
             matrices.append(np.asarray(form.matrix, dtype=np.complex128).ravel())
             matrix_offset += matrices[-1].size
-        key = ("tile", self._TILE_BITS)
+        key = ("tile", self._TILE_BITS, self.gpu_products)
         if key not in self._kernels:
             source = r"""
             __device__ unsigned long long tile_index(
@@ -716,7 +743,9 @@ class _GateTiles(_TileQueue):
             }
             """
             source = source.replace("TILE_BITS", str(self._TILE_BITS))
-            source = _COMPLEX_OPS + source.replace("GATE_INTS", str(_TILE_GATE_INTS))
+            source = self._complex_ops() + source.replace(
+                "GATE_INTS", str(_TILE_GATE_INTS)
+            )
             # No fast-math or reduced-precision mode; ordinary binary64 ops.
             kernel = cp.RawKernel(source, "gate_tile")
             shared = (1 << self._TILE_BITS) * 16
@@ -753,6 +782,8 @@ class CupySVEngine(  # pylint: disable=too-many-ancestors
     shot's host seed stream, the same draws the CPU engines make, so a seed
     selects the same branches wherever the probabilities agree.
     """
+
+    _uses_gpu_products = True
 
     _supported_execution_shapes = frozenset({"single_pass", "per_shot"})
     _supports_shot_workers = False
@@ -891,6 +922,8 @@ class CupyUnitaryEngine(  # pylint: disable=abstract-method,too-many-ancestors
     _GateTiles, _CupyRuntime, NumpyUnitaryEngine
 ):
     """CUDA local-operator application to all unitary columns together."""
+
+    _uses_gpu_products = True
 
     _supported_execution_shapes = frozenset({"operator"})
 

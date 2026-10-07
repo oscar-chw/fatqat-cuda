@@ -448,9 +448,11 @@ def test_trajectories_on_every_device_equal_one_device(monkeypatch):
     used = []
     shipped = simulator_module._run_shots_on_device_workers
 
-    def spy(engine_cls, devices, context, payload, batches, run_local):
+    def spy(engine_cls, devices, context, payload, batches, run_local, **options):
         used.append(tuple(devices[: len(batches)]))
-        return shipped(engine_cls, devices, context, payload, batches, run_local)
+        return shipped(
+            engine_cls, devices, context, payload, batches, run_local, **options
+        )
 
     monkeypatch.setattr(simulator_module, "_run_shots_on_device_workers", spy)
     counts = [
@@ -762,3 +764,80 @@ def test_a_density_matrix_with_fewer_measured_branches_than_shots_stays_put(
     got = _fake_devices(3, noise, "density_matrix").run(program, **options)
     assert got.result().get_counts() == expected.result().get_counts()
     assert {device for _, device, _ in _logged(device_log)} <= {0}
+
+
+def test_the_runs_gpu_products_reach_every_engine_it_uses(device_log, monkeypatch):
+    # Without CUDA: the run setting must reach this backend's engine, a
+    # further device's engine, and the engine in each GPU worker.
+    del device_log
+    monkeypatch.setenv("FATQAT_FAKE_REQUIRE_PRODUCTS", "plain")
+    program, theta, noise = _trajectory_program()
+    program = program.assign_parameters({theta: 0.7})
+    backend = _fake_devices(3, noise)
+    backend._engine_cls = _ProductsSV
+    backend._engine = _ProductsSV(device_id=0)
+    job = backend.run(
+        program, shots=30, simulation_config={"seed": 2, "gpu_products": "plain"}
+    )
+    job.result()  # each engine raises if its products are not "plain"
+    assert backend._engine.gpu_products == "plain"
+    assert backend._device_engine(1).gpu_products == "plain"
+    cuda = Simulator("statevector", runtime="cuda")
+    cuda._prepare_run(
+        program,
+        shots=4,
+        resource_layout=None,
+        initial_state=None,
+        simulation_config={"gpu_products": "plain"},
+        result_config=None,
+    )
+    assert cuda._engine.gpu_products == "plain"
+    with pytest.raises(BackendValidationError, match="statevector and unitary"):
+        Simulator("density_matrix", runtime="cuda").run(
+            program, shots=4, simulation_config={"gpu_products": "plain"}
+        )
+
+
+class _ProductsSV(_FakeDeviceSV):
+    _uses_gpu_products = True
+    gpu_products = "compensated"
+
+    def execute_shot_batch(self, context, payload, seed_batch, policy):
+        wanted = os.environ.get("FATQAT_FAKE_REQUIRE_PRODUCTS")
+        if wanted and self.gpu_products != wanted:
+            raise RuntimeError(f"engine used {self.gpu_products!r}")
+        return super().execute_shot_batch(context, payload, seed_batch, policy)
+
+
+def test_gpu_products_reach_cpu_runtimes_only_as_an_error():
+    program = fq.Program(1)
+    program.add(ops.H, 0)
+    for runtime in ("numpy", "numba"):
+        with pytest.raises(BackendValidationError, match="runtime='cuda'"):
+            Simulator("statevector", runtime=runtime).run(
+                program, shots=0, simulation_config={"gpu_products": "plain"}
+            )
+    # "auto" may run on the CPU for a small state: the option is then moot.
+    Simulator("statevector", runtime="auto").run(
+        program,
+        shots=0,
+        result_config={"counts": False, "final_state": True},
+        simulation_config={"gpu_products": "plain"},
+    ).result()
+
+
+def test_a_gpu_worker_takes_the_runs_engine_options(monkeypatch):
+    # The options travel with each batch, so a worker computes as the caller.
+    from fatqat.simulator._engine import parallel
+
+    seen = []
+
+    class Engine(_FakeDeviceSV):
+        def execute_shot_batch(self, context, payload, seed_batch, policy):
+            seen.append(getattr(self, "gpu_products", None))
+            return []
+
+    monkeypatch.setattr(parallel, "_DEVICE_ENGINES", {})
+    parallel._run_device_batch(Engine, 1, None, None, [], {"gpu_products": "plain"})
+    parallel._run_device_batch(Engine, 1, None, None, [], None)
+    assert seen == ["plain", "plain"]  # kept on the cached engine
