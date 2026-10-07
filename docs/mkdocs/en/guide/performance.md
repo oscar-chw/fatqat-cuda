@@ -245,6 +245,43 @@ gates that act as the identity on qubits still in a known basis state (a `CX`
 whose control is still `|0⟩`) are dropped. Measurements, resets and channels
 are never crossed. Measure the gain on your own circuit, as above.
 
+## What speed to expect on your hardware
+
+`runtime="auto"` picks for you, run by run: the CPU for small states, CUDA
+for large ones on an NVIDIA GPU, and Metal for large statevectors on an Apple
+GPU. Measured, it was never slower than the better of the CPU and one GPU at
+any size ([auto-check.json](https://github.com/oscar-chw/fatqat-cuda/blob/main/results/auto-check.json)).
+What it gains depends on the machine. Measured figures are marked; the
+others are estimates scaled from them, not measurements.
+
+| Machine | Small circuits (under about 16 qubits) | Large circuits (24–28 qubits) |
+| --- | --- | --- |
+| NVIDIA workstation GPU, 32 CPU threads (measured) | CPU as fast or faster | 17–21× (default products), 23–26× with `gpu_products="plain"`, on observables; 6–8× with the full state copied back |
+| Gaming PC, high-end GPU (24–32 GB) with a desktop CPU (estimate) | CPU as fast or faster | about 20–45×, 25–60× with plain products |
+| Gaming PC, mid-range GPU (8–12 GB) with a desktop CPU (estimate) | CPU as fast or faster | about 7–18×, 10–25× with plain products |
+| Apple-silicon Mac, Max-class chip, `runtime="metal"` (measured) | CPU (the GPU takes no work below 16 MiB of state) | 1.18–1.52× over the CPU alone |
+| Apple-silicon Mac, base or Pro chip (estimate) | CPU | about 1.05–1.2× (base) to 1.1–1.4× (Pro) over the CPU alone |
+
+Why these shapes:
+
+- Simulating a statevector is limited by memory bandwidth, not cores: 96 CPU
+  threads were no faster than 32. A desktop CPU has much less bandwidth than
+  a server, which is why a GPU gains more over it.
+- Consumer and workstation NVIDIA GPUs compute double precision (binary64)
+  at 1/64 of their single-precision rate, so the GPU's arithmetic, not only its
+  memory, sets its speed; `gpu_products="plain"` does less of it.
+- Apple GPUs have no hardware binary64. FatQat computes it in software, bit
+  for bit like the CPU, so the GPU adds to the CPU instead of replacing it,
+  and a chip with fewer GPU cores gains less.
+- On an NVIDIA machine one state is never split between CPU and GPU: the GPU
+  does about 20 times the CPU's work, so the CPU could add a few per cent at
+  most, at the cost of bit-identical results.
+- GPU memory bounds the size: a statevector needs 16 bytes per amplitude
+  (4 GiB at 28 qubits), so a 12 GB card holds up to 29 qubits and a 32 GB
+  card 31.
+
+Measure your own circuit before relying on any of these, as above.
+
 ## Account for physical emulation separately
 
 Hamiltonian emulators add costs that a circuit-level array-size estimate does
