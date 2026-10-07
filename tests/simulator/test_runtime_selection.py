@@ -239,5 +239,6 @@ def test_metadata_echoes_only_the_requested_public_configuration():
         "max_workers": None,
         "fusion": False,
         "simplify": "auto",
+        "gpu_products": "compensated",
     }
     assert "execution" not in result.metadata

@@ -128,6 +128,19 @@ algorithm for each 2×2 determinant, commit 0bd7467). With plain products,
 spelled out the same way so tiles and per-gate kernels still agree, the GPU
 regains 1.5× on observables at 24–26 qubits (an unpublished measurement).
 
+## r15 records
+
+r15 adds `simulation_config={"gpu_products": "plain"}`: the GPU rounds each
+complex product as the CPU engines do instead of with Kahan's algorithm. All
+three files measured the tree of commit 5156dbb (as ce821c5, before its
+message was reworded; the two trees are identical).
+
+| File | What it holds | Produced by |
+| --- | --- | --- |
+| `scaling-r15-plain.json` | The scaling workloads with plain products, one GPU against 32-thread Numba in one run | `perf/scaling.py --threads 32 --require-gpu --max-qubits 28 --gpu-products plain` |
+| `precision-r15-plain.json` | The 110 precision circuits with plain products on the GPU | `perf/precision.py --require-gpu --gpu-products plain` |
+| `precision-r15-compensated.json` | The same with the default products, for the paired comparison | `perf/precision.py --require-gpu` |
+
 ## Earlier record
 
 `benchmarks.json` is a scrubbed transcription of the benchmark record behind

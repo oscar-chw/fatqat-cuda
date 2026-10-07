@@ -349,3 +349,64 @@ def test_simplify_keeps_cuda_values_when_it_rewrites_only_exact_gates(engines, s
     from fatqat._backends.simplify import simplify_plan
 
     assert len(simplify_plan(plan, (2,) * n, zero_start=True)) < len(plan)
+
+
+def _run_with(engine_cls, products, n, steps, initial):
+    engine = engine_cls(device_id=0)
+    engine.gpu_products = products
+    engine.initialize((2,) * n, initial_state=initial)
+    for step in steps:
+        engine.apply(step)
+    return engine.export_state()
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_plain_products_keep_tiles_and_per_gate_kernels_identical(engines, seed):
+    # gpu_products="plain": still spelled out, so the two paths still agree
+    # bit for bit; it differs from the compensated products only by rounding.
+    tiled, per_gate, _ = engines
+    n = 14
+    rng = np.random.default_rng(7000 + seed)
+    initial = rng.normal(size=1 << n) + 1j * rng.normal(size=1 << n)
+    initial /= np.linalg.norm(initial)
+    steps = _random_steps(rng, n, 80)
+    plain = _run_with(per_gate, "plain", n, steps, initial)
+    np.testing.assert_array_equal(_run_with(tiled, "plain", n, steps, initial), plain)
+    compensated = _run_with(per_gate, "compensated", n, steps, initial)
+    assert not np.array_equal(plain, compensated)  # the option takes effect
+    np.testing.assert_allclose(plain, compensated, atol=1e-13, rtol=0)
+
+
+def test_public_plain_products_match_the_cpu(engines):
+    del engines
+    rng = np.random.default_rng(3)
+    program = fq.Program(14)
+    for q in range(14):
+        program.add(ops.RY(float(rng.uniform(0, 3))), q)
+        program.add(ops.RZ(float(rng.uniform(0, 3))), q)
+    for q in range(13):
+        program.add(ops.CX, (q, q + 1))
+    request = {"counts": False, "final_state": True}
+    cuda = Simulator("statevector", runtime="cuda").run(
+        program,
+        shots=0,
+        result_config=request,
+        simulation_config={"gpu_products": "plain"},
+    )
+    numba = Simulator("statevector", runtime="numba").run(
+        program, shots=0, result_config=request
+    )
+    assert cuda.result().metadata["simulation_config"]["gpu_products"] == "plain"
+    compensated = Simulator("statevector", runtime="cuda").run(
+        program, shots=0, result_config=request
+    )
+    # The setting takes effect through the public API, not only on an engine.
+    assert not np.array_equal(
+        cuda.result().get_statevector(), compensated.result().get_statevector()
+    )
+    np.testing.assert_allclose(
+        cuda.result().get_statevector(),
+        numba.result().get_statevector(),
+        atol=1e-13,
+        rtol=0,
+    )

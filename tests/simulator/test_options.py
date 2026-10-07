@@ -53,6 +53,8 @@ from fatqat.simulator import Simulator
         ({"fusion": None}, "fusion must be a bool"),
         ({"simplify": None}, "simplify must be .auto. or a bool"),
         ({"simplify": 1}, "simplify must be .auto. or a bool"),
+        ({"gpu_products": "fast"}, "gpu_products must be"),
+        ({"gpu_products": None}, "gpu_products must be"),
     ],
 )
 def test_public_execution_configuration_rejects_invalid_values(config, match):

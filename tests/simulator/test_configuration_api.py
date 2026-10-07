@@ -94,6 +94,7 @@ def test_simulation_and_result_configuration_are_separate():
         "max_workers": None,
         "fusion": False,
         "simplify": "auto",
+        "gpu_products": "compensated",
     }
 
 

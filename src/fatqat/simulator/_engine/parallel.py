@@ -135,14 +135,22 @@ _SERIAL = ExecutionPolicy(
 )
 
 
-def _run_device_batch(engine_cls, device, context, payload, seed_batch):
-    """In a GPU worker: run one ordered batch of shots on ``device``."""
+def _run_device_batch(
+    engine_cls, device, context, payload, seed_batch, engine_options=None
+):
+    """In a GPU worker: run one ordered batch of shots on ``device``.
+
+    ``engine_options`` are the run's engine attributes (gpu_products), set
+    on the worker's engine so it computes exactly as the caller's does.
+    """
     engine = _DEVICE_ENGINES.get((engine_cls, device))
     if engine is None:
         _LOG.debug(
             "GPU worker %d: building its engine for device %d", os.getpid(), device
         )
         engine = _DEVICE_ENGINES[(engine_cls, device)] = engine_cls(device_id=device)
+    for name, value in (engine_options or {}).items():
+        setattr(engine, name, value)
     try:
         return engine.execute_shot_batch(context, payload, seed_batch, _SERIAL)
     finally:
@@ -202,7 +210,7 @@ def _submit(device, *args):
 
 
 def _run_shots_on_device_workers(
-    engine_cls, devices, context, payload, batches, run_local
+    engine_cls, devices, context, payload, batches, run_local, engine_options=None
 ) -> list[tuple[int, ...]]:
     """Run ``batches[0]`` here with ``run_local``, the rest in GPU workers.
 
@@ -223,7 +231,18 @@ def _run_shots_on_device_workers(
     try:
         for device, batch in zip(devices[1:], batches[1:]):
             futures.append(
-                (device, *_submit(device, engine_cls, device, context, payload, batch))
+                (
+                    device,
+                    *_submit(
+                        device,
+                        engine_cls,
+                        device,
+                        context,
+                        payload,
+                        batch,
+                        engine_options,
+                    ),
+                )
             )
         try:
             local = run_local(batches[0])

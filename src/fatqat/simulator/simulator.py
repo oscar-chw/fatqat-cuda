@@ -874,6 +874,14 @@ class Simulator:
                   basis state are dropped. Channels, measurements, resets,
                   loss and reloads are never crossed. ``True`` is not
                   supported by ``run_sweep``.
+                - ``"gpu_products"`` (``"compensated"`` or ``"plain"``,
+                  default ``"compensated"``): How a CUDA run rounds each
+                  complex product in statevector and unitary gates.
+                  ``"compensated"`` recovers each product's rounding error
+                  (Kahan's algorithm, about 2 ulp even under cancellation);
+                  ``"plain"`` rounds as the CPU engines do, faster and
+                  equally accurate on average, without that bound. Other
+                  runtimes reject ``"plain"``.
 
                 Unknown or incompatible entries are rejected.
             result_config: Optional output requests. Accepted keys are:
@@ -1243,6 +1251,13 @@ class Simulator:
             self._choose_runtime(engine_allocation.system_dims)
         capabilities = self._engine.capabilities
         _validate_execution_controls(simulation, capabilities)
+        if getattr(self._engine, "_uses_gpu_products", False):
+            self._engine.gpu_products = simulation.gpu_products
+        elif simulation.gpu_products != "compensated" and not self._auto_runtime:
+            raise BackendValidationError(
+                f"gpu_products={simulation.gpu_products!r} applies to "
+                "runtime='cuda' statevector and unitary runs only"
+            )
         # Both hooks are resolved exactly once per run, before any execution
         # try block: capacity, dimension, grid-fit, and mapping failures must
         # raise directly, never become a failed Job. The resource layout is the
@@ -2172,7 +2187,10 @@ class Simulator:
         """The engine for a further device, built on first use and kept."""
         if device not in self._device_engines:
             self._device_engines[device] = self._engine_cls(device_id=device)
-        return self._device_engines[device]
+        engine = self._device_engines[device]
+        if getattr(self._engine, "_uses_gpu_products", False):
+            engine.gpu_products = self._engine.gpu_products  # as this run's
+        return engine
 
     def _run_shots_on_devices(
         self,
@@ -2206,6 +2224,11 @@ class Simulator:
             # Each batch is one serial loop, as in a GPU worker.
             lambda seeds: self._engine.execute_shot_batch(
                 context, payload, seeds, _SERIAL_SHOTS
+            ),
+            engine_options=(
+                {"gpu_products": self._engine.gpu_products}
+                if getattr(self._engine, "_uses_gpu_products", False)
+                else None
             ),
         )
         rows = np.asarray(snapshots, dtype=int).reshape(
