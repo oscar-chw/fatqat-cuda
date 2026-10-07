@@ -123,9 +123,11 @@ unchanged.
 - **r13: the Apple GPU, and a runtime that picks the hardware.**
   `runtime="metal"` shares each batch of gate tiles between Numba and the
   Apple GPU, which computes binary64 in software in Numba's operation order:
-  states are bit-identical to Numba's, 1.2–1.5× faster at 24–26 qubits on
-  the measured laptop. `runtime="auto"` chooses CUDA on every GPU for large
-  states, else Metal for large statevectors, else Numba, run by run.
+  states are bit-identical to Numba's, 1.18–1.52× faster at 24–26 qubits on
+  one Apple-silicon Mac ([metal-check.json](results/metal-check.json)).
+  `runtime="auto"` chooses CUDA on every GPU for large states, else Metal for
+  large statevectors, else Numba, run by run; it picked the faster runtime
+  at every measured size ([auto-check.json](results/auto-check.json)).
 
 What crosses between host and device on each kind of call, and where that is in the code: [docs/cuda-coverage.md](docs/cuda-coverage.md#host-and-device).
 

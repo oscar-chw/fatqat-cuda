@@ -1,0 +1,201 @@
+{
+ "description": "runtime='auto' against Numba and CUDA (one GPU) on the same circuit, arms alternating; auto may use every visible GPU.",
+ "measurement_date": "2026-10-07",
+ "code_revision": "45114da",
+ "tolerance": 1.15,
+ "rows": [
+  {
+   "method": "statevector",
+   "qubits": 10,
+   "median_s": {
+    "numba": 0.0017862820532172918,
+    "cuda": 0.0027778150979429483,
+    "auto": 0.001710608135908842
+   },
+   "auto_chose": "numba",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9576360759085315
+  },
+  {
+   "method": "statevector",
+   "qubits": 12,
+   "median_s": {
+    "numba": 0.002806548960506916,
+    "cuda": 0.0032390509732067585,
+    "auto": 0.0029774471186101437
+   },
+   "auto_chose": "numba",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 1.0608926338033169
+  },
+  {
+   "method": "statevector",
+   "qubits": 14,
+   "median_s": {
+    "numba": 0.003720856038853526,
+    "cuda": 0.003388585988432169,
+    "auto": 0.003266941988840699
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9641018407067923
+  },
+  {
+   "method": "statevector",
+   "qubits": 16,
+   "median_s": {
+    "numba": 0.00775651796720922,
+    "cuda": 0.003948920173570514,
+    "auto": 0.003901959164068103
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9881078858426379
+  },
+  {
+   "method": "statevector",
+   "qubits": 18,
+   "median_s": {
+    "numba": 0.027357272105291486,
+    "cuda": 0.004641212988644838,
+    "auto": 0.0046081929467618465
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9928854715429396
+  },
+  {
+   "method": "statevector",
+   "qubits": 20,
+   "median_s": {
+    "numba": 0.09394742990843952,
+    "cuda": 0.005377835128456354,
+    "auto": 0.004580139880999923
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.851669820959089
+  },
+  {
+   "method": "statevector",
+   "qubits": 22,
+   "median_s": {
+    "numba": 0.2643949238117784,
+    "cuda": 0.011533209821209311,
+    "auto": 0.01050160895101726
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9105538799532668
+  },
+  {
+   "method": "statevector",
+   "qubits": 24,
+   "median_s": {
+    "numba": 0.9260778820607811,
+    "cuda": 0.03544680494815111,
+    "auto": 0.03478671610355377
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9813780439291251
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 5,
+   "median_s": {
+    "numba": 0.0013354578986763954,
+    "cuda": 0.0016987149138003588,
+    "auto": 0.0012968298979103565
+   },
+   "auto_chose": "numba",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9710750890729509
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 6,
+   "median_s": {
+    "numba": 0.0018221898935735226,
+    "cuda": 0.00198884098790586,
+    "auto": 0.001822741935029626
+   },
+   "auto_chose": "numba",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 1.0003029549543931
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 7,
+   "median_s": {
+    "numba": 0.0033954069949686527,
+    "cuda": 0.002190865809097886,
+    "auto": 0.002126008039340377
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9703962837485628
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 8,
+   "median_s": {
+    "numba": 0.010494545102119446,
+    "cuda": 0.0025503761135041714,
+    "auto": 0.002493389882147312
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.977655753966986
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 9,
+   "median_s": {
+    "numba": 0.009965459117665887,
+    "cuda": 0.0027677230536937714,
+    "auto": 0.002647311892360449
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.9564945050507769
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 10,
+   "median_s": {
+    "numba": 0.03709354205057025,
+    "cuda": 0.004480287898331881,
+    "auto": 0.003997893072664738
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.8923295027878119
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 11,
+   "median_s": {
+    "numba": 0.1573552959598601,
+    "cuda": 0.010876900050789118,
+    "auto": 0.010232862085103989
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 0.940788463378552
+  },
+  {
+   "method": "density_matrix",
+   "qubits": 12,
+   "median_s": {
+    "numba": 0.7021599858999252,
+    "cuda": 0.04273598990403116,
+    "auto": 0.042759661097079515
+   },
+   "auto_chose": "cuda",
+   "chosen_vs_best": 1.0,
+   "auto_vs_best": 1.000553893640969
+  }
+ ],
+ "failures": []
+}

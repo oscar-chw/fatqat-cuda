@@ -1,0 +1,190 @@
+{
+ "description": "runtime='metal' (software binary64 tiles on the Apple GPU, sharing each tile batch with Numba on the CPU) against Numba alone; same process, arms alternating.",
+ "measurement_date": "2026-10-07",
+ "code_revision": "45114da",
+ "equality": "bit patterns (tells -0.0 from +0.0), against Numba alone",
+ "rows": [
+  {
+   "workload": "qft",
+   "qubits": 24,
+   "steps": 324,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 0.5285278749652207,
+    "metal_adaptive": 0.42468104092404246,
+    "metal_0.25": 0.46603175019845366,
+    "metal_0.40": 0.43637283332645893
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.2445290089127197,
+    "metal_0.25": 1.1341027188386925,
+    "metal_0.40": 1.2111841860921226
+   }
+  },
+  {
+   "workload": "adder",
+   "qubits": 24,
+   "steps": 397,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 0.8476979173719883,
+    "metal_adaptive": 0.6434477088041604,
+    "metal_0.25": 0.7184896245598793,
+    "metal_0.40": 0.652271541301161
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.3174309361477476,
+    "metal_0.25": 1.1798332062084504,
+    "metal_0.40": 1.2996089261858454
+   }
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 24,
+   "steps": 360,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 0.981173540931195,
+    "metal_adaptive": 0.75735954195261,
+    "metal_0.25": 0.8897061669267714,
+    "metal_0.40": 0.7908819168806076
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.2955188210893231,
+    "metal_0.25": 1.1028062717833809,
+    "metal_0.40": 1.240606871884408
+   }
+  },
+  {
+   "workload": "clifford_t",
+   "qubits": 24,
+   "steps": 600,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 1.5033683748915792,
+    "metal_adaptive": 1.0068107908591628,
+    "metal_0.25": 1.331428708974272,
+    "metal_0.40": 1.079169999808073
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.4931985121143552,
+    "metal_0.25": 1.1291392207170963,
+    "metal_0.40": 1.393078361295207
+   }
+  },
+  {
+   "workload": "qft",
+   "qubits": 26,
+   "steps": 377,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 2.721753666177392,
+    "metal_adaptive": 2.080368457827717,
+    "metal_0.25": 2.2545297499746084,
+    "metal_0.40": 2.1435663332231343
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.3083036593524389,
+    "metal_0.25": 1.2072378580092127,
+    "metal_0.40": 1.2697314862586393
+   }
+  },
+  {
+   "workload": "adder",
+   "qubits": 26,
+   "steps": 433,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 3.665020207874477,
+    "metal_adaptive": 3.1100647910498083,
+    "metal_0.25": 3.157195624895394,
+    "metal_0.40": 2.9574922090396285
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.1784385387795546,
+    "metal_0.25": 1.160846727068396,
+    "metal_0.40": 1.2392324134184618
+   }
+  },
+  {
+   "workload": "qaoa",
+   "qubits": 26,
+   "steps": 390,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 4.4490989171899855,
+    "metal_adaptive": 3.235308874864131,
+    "metal_0.25": 3.4785567088983953,
+    "metal_0.40": 3.4655925827100873
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.3751697563580627,
+    "metal_0.25": 1.2790071542628223,
+    "metal_0.40": 1.2837916780485483
+   }
+  },
+  {
+   "workload": "clifford_t",
+   "qubits": 26,
+   "steps": 600,
+   "bit_identical_to_numba": {
+    "numba": true,
+    "metal_adaptive": true,
+    "metal_0.25": true,
+    "metal_0.40": true
+   },
+   "median_s": {
+    "numba": 6.6659605000168085,
+    "metal_adaptive": 4.381445791106671,
+    "metal_0.25": 5.68943199981004,
+    "metal_0.40": 4.915908708237112
+   },
+   "speedup_over_numba": {
+    "metal_adaptive": 1.5214065899313824,
+    "metal_0.25": 1.1716390142705586,
+    "metal_0.40": 1.3559976182729563
+   }
+  }
+ ],
+ "memory": {
+  "qubits": 20,
+  "cycles": 100,
+  "peak_rss_growth_mib": 0.0
+ },
+ "failures": []
+}

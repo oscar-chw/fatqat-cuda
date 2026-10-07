@@ -106,6 +106,9 @@ measured commit fe0c021.
 ## r13 records
 
 r13 adds `runtime="metal"` (the Apple GPU beside Numba) and `runtime="auto"`.
+Both files measured commit 45114da; `auto-check.json` ran with Numba on 8
+threads, so on a machine with more CPU threads the crossover to CUDA may come
+later than its 2^14 amplitudes.
 
 | File | What it holds | Produced by |
 | --- | --- | --- |
