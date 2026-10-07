@@ -4,7 +4,7 @@
 
 A CUDA backend for the open-source FatQat simulator ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), which is written by the FatQat contributors and released under Apache-2.0; this fork adds a GPU engine to it.
 Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK); the work was inspired by the course CENG5280.
-With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core), and r9 doubles r8's GPU speed there with the same memory and identical expectation values ([Results](#results)).
+With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core; on the current code it is 17–21×: the CPU engine has since become faster and the GPU's products exact, see [scaling-r14.json](results/scaling-r14.json)), and r9 doubles r8's GPU speed there with the same memory and identical expectation values ([Results](#results)).
 
 The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
 
@@ -153,6 +153,7 @@ on two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable 
 | r9 vs r8 engine, one GPU, same run (observable) | 24–28 qubits | 2.09–2.22× faster, same memory | [ab-r8-r9.json](results/ab-r8-r9.json) |
 | One GPU vs CPU, both r9 (observable) | 24–28 qubits | 35–42× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
 | One GPU vs CPU, both r9 (full state copied back) | 24–28 qubits | 16–25× faster | [scaling-r9.json](results/scaling-r9.json), [scaling-r9-cpu.json](results/scaling-r9-cpu.json) |
+| One GPU vs CPU on the current code (r13), same run | 24–28 qubits | observables 17–21×, full state copied back 6–7× against 32 threads; 96 threads are no faster (memory-bound). The CPU engine is 1.3–2.3× faster than r9's (tiles), and the GPU's exact complex products (r10) cost 1.5× | [scaling-r14.json](results/scaling-r14.json), [scaling-r14-cpu96.json](results/scaling-r14-cpu96.json) |
 | One GPU vs CPU, noisy density matrix and unitary (r8 code) | 11–14 qubits | 2.6–12.6× faster | [scaling.json](results/scaling.json) |
 | Unitary method with gate tiles vs without, one GPU, same run | 12–14 qubits | 1.28–1.42× faster, same memory | [ab-unitary-tiles.json](results/ab-unitary-tiles.json) |
 | r10 tiles (controls and diagonals take no tile bit) vs r9 tiles, same engine, QFT, adder, QAOA, Clifford+T | 24–26 qubits | GPU 1.06–2.48× (QFT 47 → 7 passes), CPU 1.48–1.68× (QFT 27 → 5 passes); equal values | [tile-check-cuda.json](results/tile-check-cuda.json), [tile-check.json](results/tile-check.json) |
