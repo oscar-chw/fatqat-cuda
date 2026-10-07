@@ -130,8 +130,9 @@ def child(args) -> None:
             if args.threads == 1
             else {"kernel_parallelism": "threads", "max_workers": args.threads}
         )
-    if args.simplify:
-        config["simplify"] = True
+    # Off unless asked: the default ("auto") would time a planning pass too,
+    # and the engines are what this compares.
+    config["simplify"] = bool(args.simplify)
 
     def execute():
         if observable_case:
