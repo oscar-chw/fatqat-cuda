@@ -1,8 +1,12 @@
 # Apple GPU (Metal) prototype
 
-A prototype, not a FatQat runtime: it shows that an Apple GPU can take part in
-FatQat's statevector simulation without losing any accuracy, and measures what
-it gains.
+The prototype behind `runtime="metal"`. The runtime itself is
+`src/fatqat/simulator/_engine/metal.py`: the same tile kernel, bridged through
+PyObjC instead of the Swift library here, with an adaptive CPU/GPU share; it
+is measured by `perf/metal_check.py` (`results/metal-check.json`). This
+folder keeps the prototype and its records: it showed that an Apple GPU can
+take part in FatQat's statevector simulation without losing any accuracy, and
+measured what it gains.
 
 ## The problem
 

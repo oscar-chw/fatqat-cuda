@@ -103,6 +103,24 @@ runtimes require `None`. Availability failures occur at execution
 and are captured in an ERROR Job. See the [CUDA runtime](cupy-simulator.md) for
 installation, device selection, memory, Estimator transfers and precision.
 
+`runtime="metal"` runs statevectors on Numba with the Apple GPU beside it
+(install `fatqat[metal]`, which adds PyObjC's Metal bindings on macOS). Each
+batch of gate tiles is split between the GPU and the CPU threads, in a share
+that follows their measured speeds; the GPU computes binary64 in software, in
+the operation order of Numba's cache tiles, so states are bit-identical to
+Numba's. Apple GPUs have no hardware binary64, so the GPU adds to the CPU
+rather than replacing it; states below 16 MiB stay on Numba. The GPU takes
+part in single-pass runs; runs evolved shot by shot (mid-circuit measurement,
+noise) use Numba's per-shot paths on the CPU, with the same results. Other
+methods are rejected.
+
+`runtime="auto"` chooses for each run, from the hardware it finds and the size
+of the state: CUDA on every visible GPU once the state holds 2^14 amplitudes
+(a 14-qubit statevector or a 7-qubit density matrix), else Metal for a
+statevector large enough for the Apple GPU to take tiles, else Numba. Result
+metadata `"runtime"` names the runtime used. `AtomArraySimulator` chooses
+Numba only and rejects `"cuda"` and `"metal"`.
+
 `simulation_config` changes one call to [`Simulator.run`][fatqat.simulator.Simulator.run]. Its string
 values are case-sensitive.
 

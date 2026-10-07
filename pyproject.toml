@@ -40,6 +40,8 @@ dependencies = [
 # CPU and Apple installations do not require either extra.
 cuda12 = ["cupy-cuda12x>=14.2,<15"]
 cuda13 = ["cupy-cuda13x>=14.2,<15"]
+# runtime="metal": the Apple GPU beside Numba, through PyObjC's Metal bindings.
+metal = ["pyobjc-framework-Metal>=10; sys_platform == 'darwin'"]
 
 [project.urls]
 Homepage = "https://github.com/spaceqat/fatqat"

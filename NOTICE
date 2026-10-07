@@ -9,7 +9,8 @@ density-matrix, unitary and superoperator execution on NVIDIA GPUs through
 CuPy, including per-shot trajectories), cache and shared-memory gate tiles
 for the Numba and CUDA engines, exact circuit simplification, exact shot
 branching, several GPUs for parameter sweeps and for a run's shots, an
-Apple-GPU (Metal) prototype, and their tests, benchmarks and documentation.
+Apple-GPU (Metal) runtime and its prototype, automatic runtime selection,
+and their tests, benchmarks and documentation.
 Those additions and modifications are Copyright 2026 CHOI Hei Wang (Oscar)
 and are licensed under the Apache License, Version 2.0. They were developed
 by a student at The Chinese University of Hong Kong, inspired by the course

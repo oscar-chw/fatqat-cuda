@@ -7,6 +7,8 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 from __future__ import annotations
 
 import copy
+import functools
+import importlib
 import logging
 from math import prod
 import threading
@@ -126,7 +128,40 @@ _LOG = logging.getLogger(__name__)
 # whose rounding can depend on an amplitude's position, so even moving
 # amplitudes exactly could change a last bit there (tests/simulator/
 # test_simplify.py, mixed radix).
-_AUTO_SIMPLIFY_MIN_WORK = {"numba": 1 << 19, "cuda": 1 << 25}
+_AUTO_SIMPLIFY_MIN_WORK = {"numba": 1 << 19, "cuda": 1 << 25, "metal": 1 << 19}
+# runtime="auto" uses CUDA from this many stored amplitudes (a 14-qubit
+# statevector or a 7-qubit density matrix): where one GPU first matched or
+# beat Numba on 8 threads in perf/auto_check.py; below it a GPU's per-gate
+# launch latency costs more than its bandwidth saves.
+_AUTO_CUDA_MIN_AMPLITUDES = 1 << 14
+
+
+@functools.cache
+def _cuda_device_count() -> int:
+    """Visible CUDA devices, 0 without CuPy or a driver; looked up once."""
+    try:
+        cupy = importlib.import_module("cupy")
+        return int(cupy.cuda.runtime.getDeviceCount())
+    except Exception:  # pylint: disable=broad-except  # no CuPy, driver or device
+        return 0
+
+
+@functools.cache
+def _metal_available() -> bool:
+    """Whether runtime="metal" can run here; looked up once."""
+    try:
+        from ._engine import metal  # pylint: disable=import-outside-toplevel
+
+        metal._MetalContext.get()  # pylint: disable=protected-access
+    except (ImportError, BackendValidationError):
+        return False
+    return True
+
+
+# MetalSVEngine._TILE_MIN_BYTES, without importing it: below this the Apple
+# GPU takes no tiles, so runtime="auto" stays on Numba.
+_METAL_MIN_BYTES = 16 * 2**20
+
 # Amplitudes each method stores per entry of a state vector, as a power.
 _STATE_POWER = {"statevector": 1, "density_matrix": 2, "unitary": 2, "superop": 4}
 
@@ -370,6 +405,8 @@ class Simulator:
     # matrix backends, which reject Loss via validate_noise_model rather than
     # silently ignoring it; AtomArraySimulator sets it True.
     _supports_loss: bool = False
+    # The runtimes runtime="auto" may choose for this class.
+    _AUTO_RUNTIMES: tuple[str, ...] = ("cuda", "metal", "numba")
 
     def __init__(
         self,
@@ -398,7 +435,12 @@ class Simulator:
                 statevector shot draws from its own seed stream as the CPU
                 engines do. Operator
                 methods retain their usual restrictions. CUDA rejects CPU
-                workers and fusion.
+                workers and fusion. ``"metal"`` (statevectors only, with
+                ``fatqat[metal]`` on macOS) shares each batch of gate tiles
+                between Numba and the Apple GPU, bit-identical to Numba's
+                tiles; runs evolved shot by shot stay on Numba's CPU paths. ``"auto"`` chooses for each run: CUDA on every GPU for
+                states of at least 2**14 amplitudes, else Metal for large
+                statevectors, else Numba; metadata ``"runtime"`` says which.
                 Runtimes are not promised to be bit-identical.
             device_id: Nonnegative CUDA device ordinal among the process's
                 visible GPUs. ``None`` selects device 0 for ``runtime="cuda"``.
@@ -442,10 +484,20 @@ class Simulator:
                 "'superop'"
             )
         normalized_runtime = str(runtime).lower()
-        if normalized_runtime not in ("numpy", "numba", "cuda"):
+        if normalized_runtime not in ("numpy", "numba", "cuda", "metal", "auto"):
             raise BackendValidationError(
-                f"unsupported runtime={runtime!r}; expected 'numpy', 'numba', or 'cuda'"
+                f"unsupported runtime={runtime!r}; expected 'numpy', 'numba', "
+                "'cuda', 'metal', or 'auto'"
             )
+        # "auto" starts on Numba and chooses each run's runtime from the
+        # hardware found and the size of the program's state (_choose_runtime).
+        self._auto_runtime = normalized_runtime == "auto"
+        if self._auto_runtime:
+            if device_id is not None:
+                raise BackendValidationError(
+                    "runtime='auto' takes no device_id: it uses every visible GPU"
+                )
+            normalized_runtime = "numba"
         if normalized_runtime != "cuda" and device_id is not None:
             raise BackendValidationError(
                 "device_id is only supported by runtime='cuda'"
@@ -506,6 +558,16 @@ class Simulator:
                 "unitary": cupy.CupyUnitaryEngine,
                 "superop": cupy.CupySuperopEngine,
             }[normalized]
+        elif normalized_runtime == "metal":
+            if normalized != "statevector":
+                raise BackendValidationError(
+                    "runtime='metal' supports the statevector method only; "
+                    "use runtime='numba' for the others"
+                )
+            # Importing our engine does not import PyObjC or open the GPU.
+            from ._engine import metal
+
+            self._engine_cls = metal.MetalSVEngine
         self._runtime = normalized_runtime
 
         if implementation_map is None:
@@ -529,6 +591,8 @@ class Simulator:
         else:
             self._engine = self._engine_cls()
         self._device_engines: dict[int, MatrixEngine] = {}
+        # runtime="auto": each runtime used so far, to switch back to.
+        self._runtime_engines: dict[str, tuple] = {}
 
     @property
     def method(self) -> str:
@@ -1171,6 +1235,12 @@ class Simulator:
         shots: int = 0,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
+        if self._auto_runtime:
+            # Choose first: the settings are validated against the engine
+            # that will run them, not the one the previous run left.
+            resource_layout = self._resolve_resource_layout(program, resource_layout)
+            engine_allocation = self._allocate_engine_indices(program, resource_layout)
+            self._choose_runtime(engine_allocation.system_dims)
         capabilities = self._engine.capabilities
         _validate_execution_controls(simulation, capabilities)
         # Both hooks are resolved exactly once per run, before any execution
@@ -1181,8 +1251,9 @@ class Simulator:
         # Both are paired into one private lowering context and threaded
         # through preparation/lowering unchanged, so lowering never re-resolves
         # either value.
-        resource_layout = self._resolve_resource_layout(program, resource_layout)
-        engine_allocation = self._allocate_engine_indices(program, resource_layout)
+        if not self._auto_runtime:
+            resource_layout = self._resolve_resource_layout(program, resource_layout)
+            engine_allocation = self._allocate_engine_indices(program, resource_layout)
         classical_allocation = _ClassicalAllocation.from_program(program)
         initial_state = self._validate_initial_state(
             initial_state, tuple(reversed(engine_allocation.system_dims))
@@ -1250,6 +1321,78 @@ class Simulator:
             initial_state=initial_state,
             simplification=simplification,
         )
+
+    def _choose_runtime(self, system_dims) -> bool:
+        """runtime="auto": switch to the runtime for this state; True if it changed.
+
+        CUDA, on every visible GPU, once the state reaches
+        ``_AUTO_CUDA_MIN_AMPLITUDES`` (below that a GPU's launch latency costs
+        more than its bandwidth saves); else Metal for statevectors large
+        enough for the Apple GPU to take tiles; else Numba.
+        """
+        amplitudes = prod(system_dims) ** _STATE_POWER[self._state_field]
+        chosen = "numba"
+        if (
+            "cuda" in self._AUTO_RUNTIMES
+            and amplitudes >= _AUTO_CUDA_MIN_AMPLITUDES
+            and _cuda_device_count() > 0
+        ):
+            chosen = "cuda"
+        elif (
+            "metal" in self._AUTO_RUNTIMES
+            and self._state_field == "statevector"
+            and amplitudes * 16 > _METAL_MIN_BYTES
+            and _metal_available()
+        ):
+            chosen = "metal"
+        if chosen == self._runtime:
+            return False
+        _LOG.debug(
+            "runtime='auto' chose %r for %d amplitudes (was %r)",
+            chosen,
+            amplitudes,
+            self._runtime,
+        )
+        # The engine left behind keeps its caches, not its last state: a
+        # large state would otherwise stay in memory while small runs go on.
+        if self._engine._state is not None:  # pylint: disable=protected-access
+            self._engine.state = None
+            release = getattr(self._engine, "_release_device_memory", None)
+            if release is not None:
+                release()
+        self._runtime_engines[self._runtime] = (
+            self._engine_cls,
+            self._engine,
+            self._device_ids,
+            self._all_devices,
+        )
+        if chosen not in self._runtime_engines:
+            if chosen == "cuda":
+                from ._engine import cupy  # pylint: disable=import-outside-toplevel
+
+                cls = {
+                    "statevector": cupy.CupySVEngine,
+                    "density_matrix": cupy.CupyDMEngine,
+                    "unitary": cupy.CupyUnitaryEngine,
+                    "superop": cupy.CupySuperopEngine,
+                }[self._state_field]
+                engine, devices, every = cls(device_id=0), (0,), True
+            elif chosen == "metal":
+                from ._engine import metal  # pylint: disable=import-outside-toplevel
+
+                cls = metal.MetalSVEngine
+                engine, devices, every = cls(), (), False
+            else:
+                raise AssertionError(f"numba is always cached, not {chosen!r}")
+            self._runtime_engines[chosen] = (cls, engine, devices, every)
+        (
+            self._engine_cls,
+            self._engine,
+            self._device_ids,
+            self._all_devices,
+        ) = self._runtime_engines[chosen]
+        self._runtime = chosen
+        return True
 
     def _simplify_skip_reason(self, simulation, facts, system_dims, shots):
         """Why this run is not simplified, or ``None`` to simplify it."""
