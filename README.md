@@ -4,7 +4,7 @@
 
 A CUDA backend for the open-source FatQat simulator ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), which is written by the FatQat contributors and released under Apache-2.0; this fork adds a GPU engine to it.
 Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK); the work was inspired by the course CENG5280.
-With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core), and r9 doubles r8's GPU speed there with the same memory and identical expectation values ([Results](#results)).
+With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core; on the current code it is 17–21×: the CPU engine has since become faster and the GPU's products exact, see [scaling-r14.json](results/scaling-r14.json)), and r9 doubles r8's GPU speed there with the same memory and identical expectation values ([Results](#results)).
 
 The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
 

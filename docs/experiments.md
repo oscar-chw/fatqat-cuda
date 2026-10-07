@@ -58,7 +58,7 @@ measured that way.
 | Experiment | Parameters | Result | File |
 | --- | --- | --- | --- |
 | Precision | the 110 circuits above, r8 code | ≤ 3.1 eps every runtime; GPU vs Numba −0.045 ± 0.031 eps | [precision.json](../results/precision.json) |
-| GPU vs CPU scaling | statevector, density matrix, unitary, observables; 6–28 qubits; 5 warm calls; CPU = Numba at `NUMBA_NUM_THREADS=32` (a fixed setting, not every core) | 35–42× (24–28-qubit observables) | [scaling-r9.json](../results/scaling-r9.json), [scaling-r9-cpu.json](../results/scaling-r9-cpu.json), [scaling.json](../results/scaling.json) |
+| GPU vs CPU scaling | statevector, density matrix, unitary, observables; 6–28 qubits; 5 warm calls; CPU = Numba at `NUMBA_NUM_THREADS=32` (a fixed setting, not every core) | 35–42× (24–28-qubit observables, r9 engines; 17–21× on the r13 code, [scaling-r14.json](../results/scaling-r14.json)) | [scaling-r9.json](../results/scaling-r9.json), [scaling-r9-cpu.json](../results/scaling-r9-cpu.json), [scaling.json](../results/scaling.json) |
 | r9 vs r8, one GPU | same-run A/B, arms alternating, GPU pool and host memory recorded | 2.09–2.22× at 24–28 qubits, same memory | [ab-r8-r9.json](../results/ab-r8-r9.json) |
 | Unitary tiles | same-run A/B, 11–14 qubits | 1.28–1.42× at 12–14 | [ab-unitary-tiles.json](../results/ab-unitary-tiles.json) |
 | CPU cache tiles | engine apply loop, 22–26 qubits, two CPU settings | 1.23–1.55× | [cpu-tiles.json](../results/cpu-tiles.json) |
