@@ -152,13 +152,10 @@ The r14 and r15 statevector-observable comparisons use one GPU, five warm
 calls per median and `simplify=False`; imports, construction and first-call
 compilation are excluded. The r14 result with its
 [compensated kernel](https://github.com/oscar-chw/fatqat-cuda/blob/e59f771/src/fatqat/simulator/_engine/cupy.py)
-is 17.35–20.72×
-and r15 plain products give 22.88–26.44× at 24, 26 and 28 qubits. These
-measurements do not describe startup time or every simulator method. Full-state
-copies have separate timing rows.
+is 17.35–20.72×; r15 plain products give 22.88–26.44× at 24, 26 and 28 qubits.
 
-Accuracy is measured separately on 110 small circuits of up to five subsystems.
-The r15 maximum absolute component error is 2.8761 machine epsilons with
+On 110 separate small circuits of up to five subsystems, the r15 maximum
+absolute component error is 2.8761 machine epsilons with
 compensated products and 3.0095 with plain products, against a 60-digit
 evolution of the stored complex128 gate coefficients. This is neither an L2
 error bound nor an accuracy guarantee for the larger timing circuits; see
