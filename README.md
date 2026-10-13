@@ -4,7 +4,7 @@
 
 A CUDA backend for the open-source FatQat simulator ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), which is written by the FatQat contributors and released under Apache-2.0; this fork adds a GPU engine to it.
 Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK); the work was inspired by the course CENG5280.
-With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core; on the current code it is 17–21×: the CPU engine has since become faster and the GPU's products exact, see [scaling-r14.json](results/scaling-r14.json)), and r9 doubles r8's GPU speed there with the same memory and identical expectation values ([Results](#results)).
+On recorded warm complex128 calls with simplification disabled, one GPU runs 24–28-qubit statevector observables 17–21× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core; [scaling-r14.json](results/scaling-r14.json)). Earlier r9 results use different engine revisions and are kept separately under [Results](#results).
 
 The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
 
@@ -150,7 +150,9 @@ on two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable 
 
 The r14 and r15 statevector-observable comparisons use one GPU, five warm
 calls per median and `simplify=False`; imports, construction and first-call
-compilation are excluded. The r14 compensated-products result is 17.35–20.72×
+compilation are excluded. The r14 result with its
+[compensated kernel](https://github.com/oscar-chw/fatqat-cuda/blob/e59f771/src/fatqat/simulator/_engine/cupy.py)
+is 17.35–20.72×
 and r15 plain products give 22.88–26.44× at 24, 26 and 28 qubits. These
 measurements do not describe startup time or every simulator method. Full-state
 copies have separate timing rows.
@@ -226,7 +228,8 @@ Docs: see [docs/README.md](docs/README.md).
 
 ## Limits
 
-- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). The Apple-GPU implementation ships as `runtime="metal"` with the optional `metal` extra. It shares statevector gate tiles with Numba and computes binary64 in software. On the measured 24–26-qubit cases it was bit-identical to Numba and 1.18–1.52× faster than the CPU alone ([results](results/metal-check.json)); the earlier [prototype](prototypes/metal/README.md) is retained for reference.
+- **Not covered on CUDA:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)).
+- **Metal supports statevectors:** `runtime="metal"`, with the optional `metal` extra, shares gate tiles with Numba and computes binary64 in software. On the measured 24–26-qubit cases the adaptive CPU-plus-GPU configuration was bit-identical to Numba and 1.18–1.52× faster than the CPU alone ([results](results/metal-check.json)); the earlier [prototype](prototypes/metal/README.md) is retained for reference.
 - The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
 - Several GPUs help `run_sweep` and runs of independent shots (trajectories); a single ideal run uses one GPU, and so does a shot run that requests its final state or has fewer possible branches than shots. Two GPUs gave 1.58–1.92× on noisy runs at 20–26 qubits, and a measured circuit with few branches stays on one GPU; more than two were not measured for shots, and sweeps scale sublinearly because each row's Python-side work runs one thread at a time. One state is never split across GPUs.
 - CUDA trajectories draw from each shot's own seed stream in the order NumPy does, so a seed selects the same branches as `runtime="numpy"` wherever the branch probabilities agree to the last bit; GPU and CPU round-off differ by design (equal accuracy, not identical bits).
