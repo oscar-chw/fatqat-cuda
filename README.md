@@ -4,7 +4,7 @@
 
 A CUDA backend for the open-source FatQat simulator ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), which is written by the FatQat contributors and released under Apache-2.0; this fork adds a GPU engine to it.
 Developed by CHOI Hei Wang (Oscar), a student at The Chinese University of Hong Kong (CUHK); the work was inspired by the course CENG5280.
-With the r9 engines on both sides, one GPU runs a 24–28-qubit statevector observable 35–42× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core; on the current code it is 17–21×: the CPU engine has since become faster and the GPU's products exact, see [scaling-r14.json](results/scaling-r14.json)), and r9 doubles r8's GPU speed there with the same memory and identical expectation values ([Results](#results)).
+On recorded warm complex128 calls with simplification disabled, one GPU runs 24–28-qubit statevector observables 17–21× faster than compiled Numba on 32 CPU threads (a fixed setting, not every core; [scaling-r14.json](results/scaling-r14.json)). Earlier r9 results use different engine revisions and are kept separately under [Results](#results).
 
 The GPU is selected at the engine boundary: FatQat's validation, lowering and execution policy stay on the CPU, and only the numerical engine changes. The key path (heavy arrows) keeps the state on the device and sends back only what the call asked for.
 
@@ -148,6 +148,20 @@ Timing rows are medians of warm calls on 2026-10-06 (r11 rows: 2026-10-07), comp
 on two layers of RY/RZ on every qubit plus nearest-neighbour CX (the observable is three Pauli terms).
 "CPU" is compiled Numba with `NUMBA_NUM_THREADS=32`; separate CPU runs varied, so the controlled comparisons are the same-run A/B files. Each row links its evidence.
 
+The r14 and r15 statevector-observable comparisons use one GPU, five warm
+calls per median and `simplify=False`; imports, construction and first-call
+compilation are excluded. The r14 result with its
+[compensated kernel](https://github.com/oscar-chw/fatqat-cuda/blob/e59f771/src/fatqat/simulator/_engine/cupy.py)
+is 17.35–20.72×; r15 plain products give 22.88–26.44× at 24, 26 and 28 qubits.
+
+On 110 separate small circuits of up to five subsystems, the r15 maximum
+absolute component error is 2.8761 machine epsilons with
+compensated products and 3.0095 with plain products, against a 60-digit
+evolution of the stored complex128 gate coefficients. This is neither an L2
+error bound nor an accuracy guarantee for the larger timing circuits; see
+[compensated precision](results/precision-r15-compensated.json) and
+[plain precision](results/precision-r15-plain.json).
+
 | What was compared | Size | Result | Evidence |
 | --- | --- | ---: | --- |
 | r9 vs r8 engine, one GPU, same run (observable) | 24–28 qubits | 2.09–2.22× faster, same memory | [ab-r8-r9.json](results/ab-r8-r9.json) |
@@ -211,13 +225,14 @@ Docs: see [docs/README.md](docs/README.md).
 
 ## Limits
 
-- **Not covered on the GPU:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)). Apple GPUs have no FP64 arithmetic: a [prototype](prototypes/metal/README.md) does binary64 in software, bit-identical to Numba's tiles, and sharing each tile batch between the Apple GPU and the CPU is 1.24–1.48× faster than the CPU alone at 24–26 qubits, but it is not a FatQat runtime.
+- **Not covered on CUDA:** pulse emulation; neutral-atom occupancy and loss (`AtomArraySimulator` rejects CUDA); splitting one state across several GPUs ([coverage diagram](docs/cuda-coverage.md)).
+- **Metal supports statevectors:** `runtime="metal"`, with the optional `metal` extra, shares gate tiles with Numba and computes binary64 in software. On the measured 24–26-qubit cases the adaptive CPU-plus-GPU configuration was bit-identical to Numba and 1.18–1.52× faster than the CPU alone ([results](results/metal-check.json)); the earlier [prototype](prototypes/metal/README.md) is retained for reference.
 - The CPU baseline is a fixed setting (`NUMBA_NUM_THREADS=32`), not every core; an all-cores comparison was not repeated for r9.
 - Several GPUs help `run_sweep` and runs of independent shots (trajectories); a single ideal run uses one GPU, and so does a shot run that requests its final state or has fewer possible branches than shots. Two GPUs gave 1.58–1.92× on noisy runs at 20–26 qubits, and a measured circuit with few branches stays on one GPU; more than two were not measured for shots, and sweeps scale sublinearly because each row's Python-side work runs one thread at a time. One state is never split across GPUs.
 - CUDA trajectories draw from each shot's own seed stream in the order NumPy does, so a seed selects the same branches as `runtime="numpy"` wherever the branch probabilities agree to the last bit; GPU and CPU round-off differ by design (equal accuracy, not identical bits).
 - The CUDA 12 extra is packaged but has not been tested on a device.
 - The benchmark source documents belong to a private research record and are not published; `results/benchmarks.json` is a scrubbed transcription.
-- **Not merged upstream.** This is an independent fork and has not been submitted upstream.
+- **GPU backends are not merged upstream.** This remains an independent fork. A separate fix to size process shot workers by the CPU affinity mask was [merged upstream as #52](https://github.com/spaceqat/fatqat/pull/52); that review did not cover the CUDA or Metal implementations.
 
 ## What I learned
 
@@ -230,6 +245,6 @@ Docs: see [docs/README.md](docs/README.md).
 ## Credits and licence
 
 - FatQat, its source, documentation and tests are the work of the FatQat contributors ([spaceqat/fatqat](https://github.com/spaceqat/fatqat)), Apache-2.0. Their README is kept in [docs/upstream-README.md](docs/upstream-README.md).
-- The fork's additions (the CUDA engine, gate tiles, exact simplification, noisy GPU trajectories, shot branching, multi-GPU sweeps and shot runs, the Metal prototype) and their tests and documentation are Copyright 2026 CHOI Hei Wang (Oscar), released under Apache-2.0 like FatQat itself; see [NOTICE](NOTICE) and [LICENSE](LICENSE).
+- The fork's additions (the CUDA engine, gate tiles, exact simplification, noisy GPU trajectories, shot branching, multi-GPU sweeps and shot runs, the Metal runtime and prototype) and their tests and documentation are Copyright 2026 CHOI Hei Wang (Oscar), released under Apache-2.0 like FatQat itself; see [NOTICE](NOTICE) and [LICENSE](LICENSE).
 
 Implemented with AI coding agents under CHOI Hei Wang's design and review.
